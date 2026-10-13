@@ -10,6 +10,7 @@ import { MetricsPage } from "./pages/Metrics";
 import { ChartPage } from "./pages/Chart";
 import { Overview } from "./pages/Overview";
 import { PositionsPage } from "./pages/Positions";
+import { RiskPage } from "./pages/Risk";
 
 const PAGES = [
   { id: "overview", label: "Overview", phase: 1 },
@@ -105,6 +106,8 @@ function Terminal({ token }: { token: string }) {
       <main className={live.stale ? "is-stale" : ""}>
         {page === "overview" ? (
           <Overview live={live} />
+        ) : page === "risk" ? (
+          <RiskPage live={live} conn={conn} />
         ) : page === "metrics" ? (
           <MetricsPage conn={conn} theme={theme} />
         ) : page === "history" ? (
