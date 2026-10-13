@@ -21,11 +21,16 @@ data = [
     "duckdb>=1.0",      # consultas sobre Parquet
     "pyarrow>=15",      # escritura de Parquet
 ]
+dashboard = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "mypy>=1.10",
     "ruff>=0.5",
+    "httpx>=0.27",      # TestClient de FastAPI
 ]
 
 [project.scripts]

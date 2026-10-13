@@ -188,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     vd = sub.add_parser("validate-data")
     data_args(vd)
 
-    for mode in ("paper", "live"):
+    for mode in ("paper", "live", "demo"):
         sp = sub.add_parser(mode)
         sp.add_argument("--config", default=None)
 
@@ -198,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     rk.add_argument("--confirm", action="store_true")
 
     args = p.parse_args(argv)
-    if args.cmd not in ("paper", "live"):
+    if args.cmd not in ("paper", "live", "demo"):
         setup_logging("WARNING", json_output=False)
     match args.cmd:
         case "backtest":
@@ -209,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_sensitivity(args)
         case "validate-data":
             return cmd_validate_data(args)
-        case "paper" | "live":
+        case "paper" | "live" | "demo":
             return cmd_run(args, args.cmd)
         case "reset-kill-switch":
             return cmd_reset_kill(args)

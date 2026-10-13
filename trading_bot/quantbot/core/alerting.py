@@ -85,6 +85,7 @@ class Alerter:
         self._last_sent: dict[str, float] = {}
         self._queue: asyncio.Queue[Alert] = asyncio.Queue(maxsize=1000)
         self.sent: list[Alert] = []  # historial (útil en tests y en backtest)
+        self.listeners: list[Callable[[Alert], None]] = []  # dashboard / journal
 
     def alert(self, severity: Severity, title: str, body: str = "", key: str | None = None) -> None:
         dedupe_key = key or title
@@ -97,6 +98,13 @@ class Alerter:
         self._last_sent[dedupe_key] = now
         a = Alert(severity, title, body)
         self.sent.append(a)
+        if len(self.sent) > 5000:
+            del self.sent[:1000]
+        for listener in self.listeners:
+            try:
+                listener(a)
+            except Exception:
+                log.exception("alert listener falló")
         log_fn = {
             Severity.CRITICAL: log.critical,
             Severity.WARNING: log.warning,

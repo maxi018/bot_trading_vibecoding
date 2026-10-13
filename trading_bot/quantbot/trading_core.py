@@ -132,6 +132,10 @@ class TradingCore:
         else:
             await self.orders.cancel_all(keep_stops=True)
 
+    def reset_after_rearm(self) -> None:
+        """Llamado SOLO tras un rearme humano auditado."""
+        self._kill_executed = False
+
     async def handle_risk_action(self, action: RiskAction) -> None:
         if action.type is RiskActionType.KILL:
             await self.execute_kill(action.flatten)

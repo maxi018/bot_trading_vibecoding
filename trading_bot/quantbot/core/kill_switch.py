@@ -60,6 +60,12 @@ class KillSwitch:
         log.critical("KILL SWITCH ACTIVADO: %s (flatten=%s)", reason, flatten)
         return rec
 
+    def reload(self) -> None:
+        """Relee el estado desde disco. Es la ÚNICA forma de que una instancia viva
+        refleje un rearme, y solo ocurre si un humano borró el archivo vía
+        ``human_reset`` (CLI o dashboard con confirmación y auditoría)."""
+        self._record = self._load()
+
     def _load(self) -> KillRecord | None:
         if not self._path.exists():
             return None
@@ -71,7 +77,7 @@ class KillSwitch:
             return KillRecord("archivo de kill-switch ilegible", 0, False)
 
 
-def human_reset(state_dir: str | Path, operator: str) -> bool:
+def human_reset(state_dir: str | Path, operator: str, source: str = "cli") -> bool:
     """Rearme manual. NO llamar desde el código del bot: solo desde la CLI."""
     if not operator.strip():
         raise ValueError("Se requiere el nombre del operador para auditar el reset")
@@ -85,6 +91,7 @@ def human_reset(state_dir: str | Path, operator: str) -> bool:
                 {
                     "reset_at": int(time.time() * 1000),
                     "operator": operator,
+                    "source": source,
                     "record": path.read_text(encoding="utf-8"),
                 }
             )

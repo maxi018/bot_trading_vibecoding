@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -167,6 +168,8 @@ class RiskEngine:
         self._order_times: deque[int] = deque()
         self._order_notionals: deque[float] = deque(maxlen=50)
         self.veto_count = 0
+        # Observadores (dashboard / journal). Nunca pueden afectar la decisión.
+        self.veto_listeners: list[Callable[[Signal, str], None]] = []
 
     # ------------------------------------------------------------------ estado
     @property
@@ -180,6 +183,28 @@ class RiskEngine:
     @property
     def trading_enabled(self) -> bool:
         return not self.killed and not self.halted
+
+    @property
+    def paused(self) -> bool:
+        return "manual_pause" in self._halts
+
+    def pause(self, reason: str = "pausa manual") -> RiskAction:
+        """Pausa manual: como un halt (sin riesgo nuevo, salidas permitidas, stops vivos),
+        pero solo se levanta con ``resume()``."""
+        return self._halt("manual_pause", f"PAUSA: {reason}", None)
+
+    def resume(self) -> bool:
+        """Levanta SOLO la pausa manual. Los demás halts y el kill siguen mandando."""
+        if self.killed:
+            return False
+        if self._halts.pop("manual_pause", None) is not None:
+            self._alert(Severity.INFO, "Bot reanudado (RESUME)")
+        return True
+
+    def update_config(self, cfg: RiskConfig) -> None:
+        """Aplica un RiskConfig ya validado (ver ``risk.params.apply_changes``)."""
+        self.cfg = cfg
+        self.sizer.cfg = cfg
 
     def halt_reasons(self) -> list[str]:
         return [h.reason for h in self._halts.values()] + [
@@ -261,6 +286,11 @@ class RiskEngine:
             decision = RiskDecision.veto(f"risk_internal_error:{exc!r}")
         if not decision.approved:
             self.veto_count += 1
+            for listener in self.veto_listeners:
+                try:
+                    listener(signal, decision.reason)
+                except Exception:  # un observador roto no puede afectar al riesgo
+                    log.exception("veto listener falló")
             log.info(
                 "VETO %s %s: %s",
                 signal.symbol,
@@ -519,6 +549,97 @@ class RiskEngine:
                     self._halt("rejects", f"Rechazos excesivos {rate:.0%}", now + 900_000)
                 )
         return actions
+
+    # ----------------------------------------------------------- observabilidad
+    def breaker_readings(
+        self, metrics: AccountMetrics, mismatch_strikes: int = 0
+    ) -> list[dict[str, object]]:
+        """Estado de cada circuit breaker para el dashboard (solo lectura).
+
+        ``level``: fracción del umbral consumida (1.0 = disparado).
+        ``status``: green < 0.5 <= yellow < 0.8 <= red (o disparado).
+        """
+        c = self.cfg
+        now = self.clock.now_ms()
+        slip = sum(self._slippage_bps) / len(self._slippage_bps) if self._slippage_bps else 0.0
+        n_out = len(self._order_outcomes)
+        reject_rate = sum(self._order_outcomes) / n_out if n_out else 0.0
+        ages = [(now - st.last_data_ts) / 1000 for st in self._symbols.values() if st.last_data_ts]
+        rows: list[tuple[str, str, float, float, str, bool]] = [
+            (
+                "total_drawdown",
+                "DD total desde el pico",
+                metrics.drawdown_from_peak,
+                c.total_drawdown_kill,
+                "KILL + flatten",
+                self.killed,
+            ),
+            (
+                "daily_drawdown",
+                "PnL del día",
+                max(0.0, -metrics.daily_pnl_pct),
+                c.daily_drawdown_halt,
+                "HALT hasta mañana",
+                "daily_dd" in self._halts,
+            ),
+            (
+                "slippage",
+                "Slippage medio (bps)",
+                slip,
+                c.slippage_anomaly_multiplier * c.expected_slippage_bps,
+                "HALT 1h",
+                "slippage" in self._halts,
+            ),
+            (
+                "losing_streak",
+                "Pérdidas seguidas",
+                float(metrics.consecutive_losses),
+                float(c.consecutive_losses_reduce),
+                "size x0.5",
+                self.size_multiplier < 1,
+            ),
+            (
+                "data_age",
+                "Antigüedad de datos (s)",
+                max(ages, default=0.0),
+                c.max_data_age_s,
+                "HALT hasta que vuelvan",
+                bool(self._stale_sources) or any(k.startswith("stale:") for k in self._halts),
+            ),
+            (
+                "reject_rate",
+                "Tasa de rechazos",
+                reject_rate,
+                c.max_reject_rate,
+                "HALT 15 min",
+                "rejects" in self._halts,
+            ),
+            (
+                "desync",
+                "Desync con exchange (strikes)",
+                float(mismatch_strikes),
+                2.0,
+                "KILL + flatten",
+                False,
+            ),
+        ]
+        out: list[dict[str, object]] = []
+        for key, label, value, threshold, action, tripped in rows:
+            level = value / threshold if threshold > 0 else 0.0
+            status = "red" if tripped or level >= 0.8 else "yellow" if level >= 0.5 else "green"
+            out.append(
+                {
+                    "key": key,
+                    "label": label,
+                    "value": value,
+                    "threshold": threshold,
+                    "level": level,
+                    "status": status,
+                    "tripped": tripped,
+                    "action": action,
+                }
+            )
+        return out
 
     # ---------------------------------------------------------------- helpers
     def _halt(self, key: str, reason: str, until_ms: int | None) -> RiskAction:

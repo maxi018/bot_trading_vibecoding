@@ -180,3 +180,76 @@ async def test_failed_exit_restores_last_stop(setup):
     live = [x for x in ex.orders.values() if x.type is OrderType.STOP_MARKET and not x.is_terminal]
     assert len(live) == 1 and live[0].stop_price == pytest.approx(px * 0.95)
     assert pf.position("BTC/USDT").qty == pytest.approx(1.0)
+
+
+async def test_stop_sync_waits_for_fills_in_flight(setup):
+    """Bug real hallado en modo demo: con fills encolados (single writer), el portfolio
+    local va atrasado; re-colocar el stop en ese momento lo hace rechazar."""
+    om, ex, pf, risk, px = setup
+    queued = []
+
+    async def enqueue(f):  # como en TradingApp: los fills van a una cola
+        queued.append(f)
+
+    om.set_desired_stop("BTC/USDT", px * 0.95)
+    await om.submit(buy(px))
+    ex.set_fill_handler(enqueue)
+    om.set_desired_stop("BTC/USDT", None)
+    await om.release_stop("BTC/USDT")
+    exit_req = OrderRequest(
+        "BTC/USDT",
+        Side.SELL,
+        1.0,
+        OrderType.LIMIT,
+        price=px * 0.99,
+        reduce_only=True,
+        tif=TimeInForce.IOC,
+        decision_price=px,
+    )
+    await om.submit(exit_req)  # se llena en el exchange; el fill queda en cola
+    assert queued and pf.position("BTC/USDT").qty == pytest.approx(1.0)  # local atrasado
+    await om.sync_protective_stop("BTC/USDT")
+    assert not [o for o in ex.orders.values() if o.status is OrderStatus.REJECTED]
+    for f in queued:
+        await om.on_fill(f)
+    assert pf.position("BTC/USDT").qty == pytest.approx(0.0)
+    assert not [o for o in ex.orders.values() if not o.is_terminal]
+    assert list(risk._order_outcomes).count(True) == 0
+
+
+async def test_reduce_only_is_sized_against_exchange_truth(setup):
+    """El stop se ejecutó en el exchange pero el fill todavía no llegó: la salida
+    se omite en vez de ser rechazada (y no infla la tasa de rechazos)."""
+    om, ex, _pf, risk, px = setup
+    await om.submit(buy(px))
+    ex.positions["BTC/USDT"] = 0.0  # el exchange ya está plano
+    o = await om.submit(
+        OrderRequest(
+            "BTC/USDT",
+            Side.SELL,
+            1.0,
+            OrderType.LIMIT,
+            price=px * 0.99,
+            reduce_only=True,
+            tif=TimeInForce.IOC,
+            decision_price=px,
+            tag="exit",
+        )
+    )
+    assert o.status is OrderStatus.CANCELED and "nada que reducir" in o.reject_reason
+    assert True not in risk._order_outcomes
+    ex.positions["BTC/USDT"] = 0.4  # parcialmente cerrado: se recorta la cantidad
+    o2 = await om.submit(
+        OrderRequest(
+            "BTC/USDT",
+            Side.SELL,
+            1.0,
+            OrderType.LIMIT,
+            price=px * 0.99,
+            reduce_only=True,
+            tif=TimeInForce.IOC,
+            decision_price=px,
+            tag="exit",
+        )
+    )
+    assert o2.qty == pytest.approx(0.4)

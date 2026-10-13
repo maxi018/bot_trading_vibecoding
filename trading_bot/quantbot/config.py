@@ -15,7 +15,7 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 
-Mode = Literal["backtest", "paper", "live"]
+Mode = Literal["backtest", "paper", "live", "demo"]
 
 
 class ConfigError(ValueError):
@@ -116,6 +116,26 @@ class AlertConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ApiConfig:
+    enabled: bool = True
+    host: str = "127.0.0.1"  # SOLO local por defecto. Exponer = poner un proxy con TLS delante.
+    port: int = 8765
+    snapshot_interval_s: float = 1.0
+    cors_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
+    data_dir: str = "./data"  # único directorio desde el que la UI puede backtestear archivos
+
+
+@dataclass(frozen=True, slots=True)
+class DemoConfig:
+    """Modo demo: datos sintéticos reproducidos en tiempo acelerado, sin red."""
+
+    bars_per_second: float = 4.0
+    warmup_bars: int = 600
+    seed: int = 7
+    start_price: float = 30_000.0
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     mode: Mode = "paper"
     initial_cash: float = 10_000.0
@@ -126,6 +146,8 @@ class AppConfig:
     costs: CostConfig = field(default_factory=CostConfig)
     exchange: ExchangeConfig = field(default_factory=ExchangeConfig)
     alerts: AlertConfig = field(default_factory=AlertConfig)
+    api: ApiConfig = field(default_factory=ApiConfig)
+    demo: DemoConfig = field(default_factory=DemoConfig)
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,6 +160,7 @@ class Secrets:
     telegram_chat_id: str = ""
     discord_webhook: str = field(default="", repr=False)
     heartbeat_url: str = field(default="", repr=False)  # healthchecks.io o similar
+    dashboard_token: str = field(default="", repr=False)
 
     @classmethod
     def from_env(cls) -> Secrets:
@@ -148,6 +171,7 @@ class Secrets:
             telegram_chat_id=os.environ.get("QB_TELEGRAM_CHAT_ID", ""),
             discord_webhook=os.environ.get("QB_DISCORD_WEBHOOK", ""),
             heartbeat_url=os.environ.get("QB_HEARTBEAT_URL", ""),
+            dashboard_token=os.environ.get("QB_DASHBOARD_TOKEN", ""),
         )
 
 
@@ -177,6 +201,8 @@ def validate(cfg: AppConfig) -> None:
         raise ConfigError("fast_ema debe ser < slow_ema")
     if s.atr_stop_mult <= 0:
         raise ConfigError("Toda posición necesita stop: atr_stop_mult > 0")
+    if not 0 < cfg.api.port < 65536:
+        raise ConfigError("api.port inválido")
     if cfg.initial_cash <= 0:
         raise ConfigError("initial_cash debe ser > 0")
 

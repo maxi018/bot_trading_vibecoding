@@ -279,6 +279,9 @@ class Order:
     decision_price: float = 0.0
     tag: str = ""
     reject_reason: str = ""
+    # Lo que el EXCHANGE reporta como ejecutado (ACK/consulta). Si supera a
+    # ``filled_qty`` hay fills en vuelo que todavía no se aplicaron localmente.
+    exchange_filled_qty: float = 0.0
 
     @classmethod
     def from_request(cls, req: OrderRequest, client_order_id: str, ts: int) -> Order:

@@ -31,6 +31,8 @@ log = logging.getLogger(__name__)
 
 FillListener = Callable[[Fill], Awaitable[None]]
 
+NOTHING_TO_REDUCE = "nada que reducir en el exchange"
+
 
 class OrderManager:
     def __init__(
@@ -65,6 +67,10 @@ class OrderManager:
         self._lock = asyncio.Lock()  # serializa gestión de stops/flatten
         exchange.set_fill_handler(self.on_fill)
 
+    @property
+    def mismatch_strikes(self) -> int:
+        return self._mismatch_strikes
+
     def add_fill_listener(self, listener: FillListener) -> None:
         self._listeners.append(listener)
 
@@ -76,9 +82,33 @@ class OrderManager:
 
     # -------------------------------------------------------------- envío
     async def submit(self, req: OrderRequest) -> Order:
+        if req.reduce_only and req.tag != "flatten":  # flatten ya usa posiciones del exchange
+            # El estado local puede ir atrasado (fills en vuelo, stop ejecutado que todavía
+            # no llegó). Una orden reduce-only se dimensiona contra la VERDAD del exchange.
+            remote = await self._exchange_position(req.symbol)
+            if remote is not None:
+                same_dir = remote != 0 and (remote > 0) == (req.side is Side.SELL)
+                reducible = abs(remote) if same_dir else 0.0
+                if reducible <= 1e-12:
+                    order = Order.from_request(req, self.new_client_order_id(), self.clock.now_ms())
+                    order.status = OrderStatus.CANCELED
+                    order.reject_reason = NOTHING_TO_REDUCE
+                    self.orders[order.client_order_id] = order
+                    log.info("%s %s omitida: %s", req.tag, req.symbol, NOTHING_TO_REDUCE)
+                    return order
+                if req.qty > reducible + 1e-12:
+                    req = dataclasses.replace(req, qty=reducible)
         order = Order.from_request(req, self.new_client_order_id(), self.clock.now_ms())
         self.orders[order.client_order_id] = order
         return await self._send_with_retries(order)
+
+    async def _exchange_position(self, symbol: str) -> float | None:
+        try:
+            await self.limiter.acquire()
+            return (await self.exchange.fetch_positions()).get(symbol, 0.0)
+        except ExchangeError as exc:
+            log.warning("No se pudo leer la posición de %s en el exchange: %s", symbol, exc)
+            return None
 
     async def _send_with_retries(self, order: Order) -> Order:
         cid = order.client_order_id
@@ -130,6 +160,7 @@ class OrderManager:
     def _merge(local: Order, remote: Order) -> None:
         # Los fills se aplican por on_fill; acá solo sincronizamos estado/ids.
         local.exchange_order_id = remote.exchange_order_id or local.exchange_order_id
+        local.exchange_filled_qty = max(local.exchange_filled_qty, remote.filled_qty)
         if remote.status.is_terminal or local.status in (
             OrderStatus.PENDING_NEW,
             OrderStatus.UNKNOWN,
@@ -188,6 +219,11 @@ class OrderManager:
 
     async def sync_protective_stop(self, symbol: str) -> None:
         """Asegura exactamente UN stop nativo reduce-only, alineado con la posición."""
+        if self.fills_in_flight(symbol):
+            # El exchange ya ejecutó algo que todavía no aplicamos: el portfolio local
+            # está desactualizado. El fill, al llegar, vuelve a llamar a este método.
+            log.debug("sync_protective_stop(%s) diferido: fills en vuelo", symbol)
+            return
         async with self._lock:
             pos = self.portfolio.position(symbol).qty
             stop = self.desired_stop.get(symbol)
@@ -239,12 +275,23 @@ class OrderManager:
                 self._last_stop[symbol] = stop
                 if cur is not None:
                     await self._cancel(cur)  # el viejo se cancela DESPUÉS
+            elif new.reject_reason == NOTHING_TO_REDUCE:
+                # La posición ya no existe en el exchange (stop ejecutado, fill en vuelo).
+                if cur is not None:
+                    await self._cancel(cur)
+                    self.stop_orders.pop(symbol, None)
             else:
                 self._alert(
                     Severity.CRITICAL,
                     f"No se pudo colocar stop en {symbol}",
                     f"status={new.status} {new.reject_reason}",
                 )
+
+    def fills_in_flight(self, symbol: str) -> bool:
+        return any(
+            o.symbol == symbol and o.exchange_filled_qty > o.filled_qty + 1e-12
+            for o in self.orders.values()
+        )
 
     async def release_stop(self, symbol: str) -> None:
         """Cancela el stop antes de una salida: en SPOT el stop bloquea el saldo y la

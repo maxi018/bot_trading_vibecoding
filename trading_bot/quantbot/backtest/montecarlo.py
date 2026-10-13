@@ -38,6 +38,7 @@ class MonteCarloResult:
     ret_p95: float
     prob_dd_over_kill: float
     kill_threshold: float
+    dd_samples: tuple[float, ...] = ()  # distribución completa (para el histograma)
 
     def pretty(self) -> str:
         return (
@@ -89,4 +90,5 @@ def monte_carlo(
         ret_p95=_percentile(rets, 0.95),
         prob_dd_over_kill=sum(1 for d in dds if d > kill_threshold) / n_sims,
         kill_threshold=kill_threshold,
+        dd_samples=tuple(dds),
     )
