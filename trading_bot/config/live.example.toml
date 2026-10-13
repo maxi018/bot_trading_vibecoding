@@ -1,0 +1,18 @@
+# Live con capital MÍNIMO (Fase 3 del camino recomendado). Copiar a live.toml.
+# Requiere: QB_API_KEY, QB_API_SECRET y QB_LIVE_CONFIRM=I_UNDERSTAND_THE_RISK
+mode = "live"
+initial_cash = 500.0          # se sobreescribe con el equity real del exchange
+state_dir = "/var/lib/quantbot"
+
+[strategy]
+symbols = ["BTC/USDT"]
+timeframe = "1h"
+
+[risk]
+max_risk_per_trade = 0.005    # medio por ciento mientras se valida live vs backtest
+max_gross_leverage = 1.0
+total_drawdown_kill = 0.10
+
+[exchange]
+name = "binance"
+testnet = false               # primero correr TODO con testnet = true

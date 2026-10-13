@@ -1,0 +1,5 @@
+# Editores / SO (cada subproyecto tiene su propio .gitignore)
+.DS_Store
+.idea/
+.vscode/
+*.swp
