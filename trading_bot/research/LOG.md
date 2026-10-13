@@ -134,7 +134,32 @@ el número tiene que saber que hubo 10.
   en algún símbolo, muere con costos ×2, < 100 trades fuera de muestra). Ojo: la
   reversión opera seguido y gana poco por trade, así que el test de **costos ×2** es el
   que más la amenaza.
-- **Resultado**: *(pendiente)*
+- **Resultado** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38468244798);
+  Deflated Sharpe con 6 pruebas):
+
+  | | **#5 reversión 1h** | **#6 reversión 4h** |
+  |---|---|---|
+  | Backtest | −14.6 %, **kill a 15.0 % de DD** | −14.2 %, **kill a 15.2 % de DD** |
+  | Sharpe · PF | −1.23 · 0.59 | −0.79 · 0.69 |
+  | Trades · win rate | 629 · 59 % | 674 · 65 % |
+  | Ganancia / pérdida media | 5.7 / 13.9 USDT | 7.2 / 19.7 USDT |
+  | Deflated Sharpe | 0.00 | 0.00 |
+  | Costos ×2 | −15.0 %, kill | −14.3 %, kill |
+  | Monte Carlo P(DD > 15 %) | 97.8 % | 79.5 % |
+  | WF fuera de muestra BTC | −29.9 % (1 124 tr.) | −2.4 % (394) |
+  | WF fuera de muestra ETH | −37.1 % (1 393 tr.) | −15.3 % (454) |
+
+- **Veredicto**: **ambas refutadas**, y con más claridad que cualquier prueba anterior:
+  falla **todos** los criterios menos el de cantidad de trades.
+  - El clásico perfil de reversión mal pagada: gana seguido (59–65 %) pero gana poco y
+    pierde mucho (la pérdida media es 2.5–2.7× la ganancia media). Los rebotes chicos no
+    alcanzan a pagar los stops de 2.5 ATR ni los costos.
+  - Ni siquiera la grilla del walk-forward la salva: en 1h el óptimo de cada ventana es
+    casi siempre el umbral más extremo (RSI < 5), y aun así pierde fuera de muestra.
+  - El filtro de 200 días no alcanza: "tendencia alcista de largo plazo" no impide que
+    las caídas de corto plazo sigan cayendo en cripto (momentum de corto plazo).
+  - Ni ajustar parámetros tiene sentido acá: todas las combinaciones de la grilla pierden.
+    La familia "comprar sobrevendido en barras intradiarias" queda descartada para BTC/ETH.
 
 ---
 
@@ -187,3 +212,4 @@ Segunda corrida: **9/9 OK** contra la testnet real. Dejó a la vista un último 
   Ojo: el warmup del walk-forward del workflow sería 91 barras (3 meses) y la estrategia
   necesita 131–200 (`TrendFollowing.warmup_bars`): habría que fijarlo explícitamente.
 - ~~Filtro de régimen de mercado (media de 200 días)~~ → #3/#4, refutadas.
+- ~~Reversión a la media intradiaria (RSI 2)~~ → #5/#6, refutadas.

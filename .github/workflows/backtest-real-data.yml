@@ -220,4 +220,5 @@ jobs:
             --data "data/${RAW}_${TF}.csv" --symbol "$SYMBOL" \
             --grid "$GRID" \
             --train "$TRAIN" --test "$TEST" --warmup "$WARMUP" | tee wf.txt
-          { echo "### Walk-forward $NAME $SYMBOL $TF"; echo '```'; cat wf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          # El resumen de GitHub admite 1 MB por paso: solo el final (resumen y ventanas).
+          { echo "### Walk-forward $NAME $SYMBOL $TF"; echo "Grilla: \`$GRID\`"; echo '```'; tail -n 120 wf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
