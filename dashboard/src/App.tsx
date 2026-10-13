@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { auth } from "./api/client";
 import { LiveConnection, useLive, wsUrl, type LiveState } from "./api/live";
 import { ModeBadge, StatusPill } from "./components/Badges";
 import { Controls } from "./components/Controls";
 import { ToastProvider } from "./components/Toasts";
 import { Login } from "./pages/Login";
+import { ChartPage } from "./pages/Chart";
 import { Overview } from "./pages/Overview";
 
 const PAGES = [
@@ -27,7 +28,9 @@ function useTheme(): [string, () => void] {
   const [theme, setTheme] = useState(() => {
     try { return localStorage.getItem("qb.theme") ?? "dark"; } catch { return "dark"; }
   });
-  useEffect(() => {
+  // Layout effect: el atributo se aplica ANTES de los efectos de los hijos
+  // (el gráfico lee los colores del tema activo al crearse).
+  useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
     try { localStorage.setItem("qb.theme", theme); } catch { /* sin storage */ }
   }, [theme]);
@@ -99,6 +102,8 @@ function Terminal({ token }: { token: string }) {
       <main className={live.stale ? "is-stale" : ""}>
         {page === "overview" ? (
           <Overview live={live} />
+        ) : page === "chart" ? (
+          <ChartPage live={live} conn={conn} theme={theme} />
         ) : (
           <div className="placeholder card">
             Pantalla <strong>{PAGES.find((p) => p.id === page)?.label}</strong>: llega en la fase{" "}

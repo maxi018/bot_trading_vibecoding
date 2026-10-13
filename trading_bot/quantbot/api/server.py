@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.websockets import WebSocketDisconnect
 
+from ..core.clock import timeframe_to_ms
 from . import state
 from .backtest_jobs import BacktestJobs, JobError
 
@@ -183,10 +184,13 @@ def create_api(app: TradingApp, token: str) -> FastAPI:
     async def candles(symbol: str, limit: int = Query(500, ge=1, le=2000)) -> dict[str, Any]:
         if symbol not in app.cfg.strategy.symbols:
             raise HTTPException(404, "Símbolo desconocido")
+        candles = state.candles(app, symbol, limit)
+        since = candles[0]["time"] * 1000 if candles else 0  # solo fills del rango visible
         return {
-            "candles": state.candles(app, symbol, limit),
-            "markers": state.markers(app, symbol),
+            "candles": candles,
+            "markers": state.markers(app, symbol, since),
             "stops": state.stop_lines(app, symbol),
+            "timeframe_ms": timeframe_to_ms(app.cfg.strategy.timeframe),
         }
 
     @r.get("/api/trades")

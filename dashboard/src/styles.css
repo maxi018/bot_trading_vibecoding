@@ -275,3 +275,26 @@ main { flex: 1; width: 100%; max-width: 1400px; margin: 0 auto; padding: 16px; }
 .placeholder { padding: 48px 16px; text-align: center; color: var(--text-secondary); }
 .show-mobile-only { display: none; }
 @media (max-width: 720px) { .show-mobile-only { display: inline-flex; } }
+
+/* ---------------------------------------------------------------- gráfico */
+.chart-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface-1); padding: 7px 12px; cursor: pointer; font-family: var(--font-mono); font-size: 13px; color: var(--text-secondary); }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-selected="true"] { background: var(--surface-3); color: var(--text-primary); }
+.chart-ohlc { font-size: 12px; }
+.chart-card { position: relative; padding: 8px; }
+.chart-box { height: min(62vh, 620px); min-height: 320px; }
+.chart-frozen {
+  position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+  background: var(--warning); color: #1a1300; font-weight: 800; letter-spacing: .08em;
+  padding: 6px 14px; border-radius: 6px; z-index: 5; pointer-events: none;
+}
+.chart-frozen.error { background: var(--critical); color: #fff; letter-spacing: 0; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; align-items: center; }
+.sw { display: inline-block; vertical-align: middle; margin-right: 4px; font-style: normal; }
+.sw.line { width: 22px; height: 0; border-top: 2px solid; }
+.sw.line.dashed { border-top-style: dashed; }
+.sw.line.dotted { border-top-style: dotted; }
+@media (max-width: 720px) { .chart-box { height: 52vh; min-height: 280px; } }
+.chart-fill-chip { font-size: 12px; border: 1px solid var(--border); border-radius: 6px; padding: 2px 8px; background: var(--surface-2); }
