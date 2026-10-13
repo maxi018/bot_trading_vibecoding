@@ -1,0 +1,22 @@
+# DEMO: datos sintéticos acelerados, ejecución simulada, SIN red ni API keys.
+# Sirve para mirar el dashboard y probar controles (kill, pausa, parámetros).
+mode = "demo"
+initial_cash = 10000.0
+state_dir = "./state/demo"
+
+[strategy]
+symbols = ["BTC/USDT", "ETH/USDT"]
+timeframe = "1h"
+fast_ema = 10
+slow_ema = 50
+atr_stop_mult = 3.0
+max_vol_percentile = 0.95
+min_efficiency_ratio = 0.15
+
+[demo]
+bars_per_second = 4.0
+warmup_bars = 600
+
+[api]
+host = "127.0.0.1"
+port = 8765

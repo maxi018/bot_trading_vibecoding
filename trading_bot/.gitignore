@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+# Solo los directorios de la RAÍZ (sin anclar, 'data/' ignoraba quantbot/data/)
+/state/
+/data/
+/results/
+config/live.toml
+.env

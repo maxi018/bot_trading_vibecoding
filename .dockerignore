@@ -1,0 +1,18 @@
+# Solo entra lo que la imagen necesita (y NUNCA secretos ni estado)
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.env
+**/.env.*
+!**/.env.example
+trading_bot/state
+trading_bot/data
+trading_bot/tests
+.git
+src
+test
