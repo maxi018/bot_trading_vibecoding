@@ -173,3 +173,36 @@ async def test_stop_discards_stale_market_data_but_applies_fills(tmp_path):
     await asyncio.wait_for(app._consumer(), timeout=5)
     assert not app.bars["BTC/USDT"]  # la barra vieja NO se procesó
     assert app.portfolio.position("BTC/USDT").qty == 1.0  # el fill SÍ
+
+
+# ------------------------------------------- fondos que no son del bot (testnet real)
+def _app_with_holdings(tmp_path, monkeypatch, qty: float, price: float | None):
+    app = make_app(tmp_path)
+    app.exchange.positions["BTC/USDT"] = qty  # type: ignore[attr-defined]
+
+    async def warmup() -> None:  # sin red: solo el precio actual
+        if price:
+            app.portfolio.mark("BTC/USDT", price, 1)
+
+    monkeypatch.setattr(app, "_warmup", warmup)
+    return app
+
+
+async def test_refuses_to_adopt_funds_bigger_than_any_bot_position(tmp_path, monkeypatch):
+    """Visto en la testnet real: la cuenta trae 1 BTC (~83k) de regalo contra 10k USDT.
+    Adoptarlo haría que el riesgo "reduzca" la posición vendiendo BTC ajeno."""
+    app = _app_with_holdings(tmp_path, monkeypatch, 1.0, 83_000.0)
+    assert not await app.preflight()
+    (alert,) = [a for a in app.alerter.sent if a.severity is Severity.CRITICAL]
+    assert "no parecen del bot" in alert.title and "reserved" in alert.body
+
+
+async def test_refuses_positions_it_cannot_value(tmp_path, monkeypatch):
+    app = _app_with_holdings(tmp_path, monkeypatch, 0.01, None)
+    assert not await app.preflight()
+
+
+async def test_adopts_a_plausible_position_after_restart(tmp_path, monkeypatch):
+    app = _app_with_holdings(tmp_path, monkeypatch, 0.01, 83_000.0)  # ~8 % del equity
+    assert await app.preflight()
+    assert app.portfolio.position("BTC/USDT").qty == pytest.approx(0.01)

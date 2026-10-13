@@ -8,7 +8,7 @@ Arquitectura, Riesgo y Validación"*. Python 3.11+, `asyncio`, tipado estricto
 (`mypy --strict` limpio), **núcleo sin dependencias externas** (solo stdlib).
 
 ```
-148 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
+155 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
 backtest == paper == live (mismo pipeline)
 ```
 
@@ -292,6 +292,8 @@ Estado actual: el trend following de ejemplo **no tiene edge** ni en 1h ni en 4h
      ```bash
      python -m quantbot testnet-check          # ~15 USDT de testnet, deja la cuenta como estaba
      ```
+     La testnet regala saldo (~1 BTC y otros): para correr el bot ahí, declararlo en
+     `live.toml` → `[exchange] reserved = { BTC = 1.0, ... }` (si no, se niega a arrancar).
      Recorre entrada IOC → fill por polling (con su fee) → posición = saldo real → stop
      nativo → consulta y cancelación por nuestro `clientOrderId` → limpieza. Después,
      `live.toml` con `testnet = true` (en live+testnet el feed usa también los streams de

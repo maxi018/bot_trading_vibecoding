@@ -79,6 +79,18 @@ interceptada, sin red), antes de tocar la testnet:
 - **Cursor de trades compartido** entre símbolos: podía saltear trades. Ahora es por símbolo.
 - **Testnet con datos de mainnet**: en live+testnet el feed usaba streams de mainnet.
 
+Primera corrida de `testnet-check` contra la testnet REAL de Binance (8/9 OK):
+
+- **"Orden no encontrada" tratada como rechazo**: en CCXT `OrderNotFound` es subclase de
+  `InvalidOrder` y el `except` de rechazos iba primero. Cancelar todo sin órdenes abiertas
+  (Binance -2011) fallaba; peor, la consulta por clientOrderId tras un timeout (la base de
+  la idempotencia) habría dado "rechazada" en vez de "no llegó, reintentar". Corregido.
+- **Fondos que no son del bot**: la testnet regala ~1 BTC. El bot "adoptaba" todo el saldo
+  como posición propia (8× el equity en USDT) y el riesgo la habría reducido vendiendo
+  BTC ajeno. Ahora: `[exchange] reserved` para declararlos, y si encuentra una posición
+  mayor que la que el bot puede armar (o no la puede valuar), no arranca.
+- **Warmup con velas de mainnet** en live+testnet: ahora usa las de la testnet.
+
 ## Próximas ideas (sin correr; cada una suma 1 al contador)
 
 - **1d**: ~2 800 barras por símbolo. Los parámetros están en barras (EMA 100 = 100 días).

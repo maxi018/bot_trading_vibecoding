@@ -90,10 +90,13 @@ class CcxtExchange:
             raise RateLimitError(f"{fn}: {exc}") from exc
         except c.AuthenticationError as exc:
             raise AuthError(f"{fn}: {exc}") from exc
-        except (c.InvalidOrder, c.InsufficientFunds, c.BadRequest) as exc:
-            raise OrderRejectedError(f"{fn}: {exc}") from exc
+        # OrderNotFound ANTES que InvalidOrder: en CCXT es su subclase. Al revés, "no
+        # existe" (Binance -2011) se reportaba como rechazo: la consulta por clientOrderId
+        # tras un timeout (idempotencia) y cancelar algo ya ejecutado fallaban.
         except c.OrderNotFound:
             return None
+        except (c.InvalidOrder, c.InsufficientFunds, c.BadRequest) as exc:
+            raise OrderRejectedError(f"{fn}: {exc}") from exc
         except (c.NetworkError, c.ExchangeNotAvailable) as exc:
             raise NetworkError(f"{fn}: {exc}") from exc
         except c.ExchangeError as exc:
@@ -202,7 +205,9 @@ class CcxtExchange:
         if spot:
             bal = await self._call("fetch_balance")
             for s in spot:
-                qty = float((bal or {}).get("total", {}).get(s.split("/")[0]) or 0)
+                base = s.split("/")[0]
+                qty = float((bal or {}).get("total", {}).get(base) or 0)
+                qty -= float(self.cfg.reserved.get(base, 0.0))  # saldo que no es del bot
                 # Polvo que quedó de fees: no se puede operar (menor al mínimo del
                 # mercado) y no es una posición; contarlo daría discrepancias eternas.
                 min_qty = (

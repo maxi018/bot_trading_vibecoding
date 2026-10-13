@@ -16,3 +16,7 @@ total_drawdown_kill = 0.10
 [exchange]
 name = "binance"
 testnet = false               # primero correr TODO con testnet = true
+# Saldos que NO son del bot: los resta antes de calcular sus posiciones y nunca los opera.
+# La testnet regala ~1 BTC y otros activos: sin esto el bot se niega a arrancar (los ve
+# como una posición que él no pudo haber armado). En real: mejor una subcuenta dedicada.
+# reserved = { BTC = 1.0, ETH = 1.0 }

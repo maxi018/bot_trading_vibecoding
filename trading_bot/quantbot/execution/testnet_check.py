@@ -168,9 +168,13 @@ async def run_checks(
     except ExchangeError as exc:
         record("Error del exchange", False, str(exc))
     finally:
-        # 7) Limpieza: cancelar lo nuestro y vender lo comprado, pase lo que pase
+        # 7) Limpieza: cancelar lo nuestro y vender lo comprado, pase lo que pase. Cada
+        # paso por separado: que falle la cancelación no puede impedir la venta.
         try:
             await ex.cancel_all_orders(symbol)
+        except ExchangeError as exc:
+            record("Limpieza: cancelar órdenes abiertas", False, str(exc))
+        try:
             extra = (await ex.fetch_positions()).get(symbol, 0.0) - pos_before
             sell = float(ex.ex.amount_to_precision(symbol, max(extra, 0.0)))
             if sell >= max(min_step, 1e-12):
