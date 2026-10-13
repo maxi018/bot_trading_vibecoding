@@ -85,6 +85,15 @@ class StrategyConfig:
     max_vol_percentile: float = 0.90  # vol por encima del p90 histórico -> no entrar
     min_efficiency_ratio: float = 0.25  # Kaufman ER: debajo = mercado lateral
     er_period: int = 30
+    # Filtro de tendencia de largo plazo (experimentos #3/#4 de research/LOG.md): con N > 0,
+    # solo largos si el último cierre DIARIO está sobre su media de N días (cortos, debajo).
+    trend_filter_days: int = 0
+    # Reversión a la media (experimentos #5/#6, name = "mean_reversion"): entra con
+    # RSI(mr_rsi_period) < mr_entry_rsi, sale con cierre > SMA(mr_exit_sma) o a mr_max_bars.
+    mr_rsi_period: int = 2
+    mr_entry_rsi: float = 10.0
+    mr_exit_sma: int = 5
+    mr_max_bars: int = 10
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +213,12 @@ def validate(cfg: AppConfig) -> None:
     s = cfg.strategy
     if s.fast_ema >= s.slow_ema:
         raise ConfigError("fast_ema debe ser < slow_ema")
+    if s.mr_rsi_period < 1 or s.mr_exit_sma < 1 or s.mr_max_bars < 1:
+        raise ConfigError("strategy.mr_*: períodos y barras deben ser >= 1")
+    if not 0 < s.mr_entry_rsi < 100:
+        raise ConfigError("strategy.mr_entry_rsi debe estar entre 0 y 100")
+    if s.trend_filter_days < 0:
+        raise ConfigError("strategy.trend_filter_days no puede ser negativo (0 = apagado)")
     if s.atr_stop_mult <= 0:
         raise ConfigError("Toda posición necesita stop: atr_stop_mult > 0")
     if any(v < 0 for v in cfg.exchange.reserved.values()):

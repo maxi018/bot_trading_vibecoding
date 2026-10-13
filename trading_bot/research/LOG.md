@@ -15,7 +15,7 @@ el número tiene que saber que hubo 10.
 4. **Nada pasa a paper** sin: Deflated Sharpe ≥ 0.95, walk-forward fuera de muestra
    positivo en cada símbolo, sobrevivir costos ×2, y ≥ 100 trades fuera de muestra.
 
-**Pruebas acumuladas: 2** (ambas corren en el workflow → `TRIALS_PRIOR = 0`)
+**Pruebas acumuladas: 6** (todas corren en el workflow → `TRIALS_PRIOR = 0`)
 
 ---
 
@@ -52,6 +52,114 @@ el número tiene que saber que hubo 10.
 
 - **Veredicto**: **refutada**. Mejor que 1h, pero el edge desaparece con costos ×2 y el
   walk-forward queda en cero. CAGR por debajo de la tasa libre de riesgo.
+
+## #3 y #4 — Filtro de tendencia de largo plazo: media de 200 días (1h y 4h) · 2026-10-13
+
+*Pre-registrado: este texto se commitea ANTES de escribir el código y de ver resultados.*
+
+- **Hipótesis**: el trend following pierde sobre todo en mercados bajistas y laterales
+  largos (2022). Si cada activo solo opera largo cuando su cierre DIARIO está por encima
+  de su media simple de 200 cierres diarios, se evitan esos tramos y aparece el edge.
+- **Qué cambia** (y nada más; el resto, idéntico a #1/#2 con los parámetros del TOML):
+  - Filtro **por activo** (BTC mira a BTC, ETH a ETH), con días UTC **completos**: el
+    cierre del día es el de la última barra que cierra a las 00:00 UTC (sin look-ahead).
+  - Filtro apagado → **no hay entradas** y una posición larga abierta **se cierra**.
+  - Menos de 200 días de historia → no opera (fail-closed). Esto le saca a #3/#4 los
+    primeros ~200 días de 2019 que #1/#2 sí operan: comparación algo desfavorable.
+  - Parámetro fijado ANTES: 200 días. **No se va a probar otro valor** (150, 250…) sin
+    registrarlo acá como prueba nueva.
+- **Pruebas**: 1h y 4h = 2 pruebas nuevas → contador 4. El workflow corre baseline y
+  filtro lado a lado, y el Deflated Sharpe se calcula con 4.
+- **Refuta**: cualquiera de los criterios de las Reglas (DSR < 0.95, walk-forward fuera
+  de muestra ≤ 0 en algún símbolo, muere con costos ×2, < 100 trades fuera de muestra).
+  "Mejora respecto de #1/#2" **no alcanza**: tiene que pasar los criterios por sí misma.
+- **Notas de implementación** (escritas después del pre-registro; no cambian la regla):
+  - El cierre diario también se detecta con barras que no cierran a las 00:00 (al llegar
+    la primera barra del día siguiente). Con datos de Binance, alineados, es idéntico a
+    lo pre-registrado; sin esto, con datos desalineados el filtro nunca se encendía.
+  - El walk-forward ahora usa como warmup al menos lo que pide la estrategia (200 días
+    para este filtro) y calienta también las ventanas de train. Esto cambia un poco el
+    walk-forward de la base respecto de #1/#2: por eso el workflow la recalcula al lado,
+    con las mismas reglas.
+- **Resultado** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38462645190);
+  base recalculada en la misma corrida, Deflated Sharpe con 4 pruebas):
+
+  | | base 1h | **#3 filtro 1h** | base 4h | **#4 filtro 4h** |
+  |---|---|---|---|---|
+  | Backtest | −10.1 % | −9.9 % | +10.6 % | +11.3 % (CAGR 1.4 %) |
+  | Sharpe · PF | −0.35 · 0.88 | −0.48 · 0.81 | 0.33 · 1.26 | 0.42 · 1.44 |
+  | Max DD | 13.5 % | 12.4 % | 9.5 % | 10.5 % |
+  | Trades | 734 | 407 | 171 | 103 |
+  | Deflated Sharpe | 0.02 | 0.01 | 0.45 | 0.55 |
+  | Costos ×2 | −14.2 %, kill | −14.7 %, kill | −4.5 % | 0.0 % |
+  | Monte Carlo P(DD > 15 %) | 87.6 % | 67.4 % | 2.7 % | 0.3 % |
+  | WF fuera de muestra BTC | −3.1 % (243 tr.) | +0.4 % (171) | −1.3 % (78) | −1.6 % (55) |
+  | WF fuera de muestra ETH | −2.8 % (271) | −4.9 % (188) | +4.0 % (68) | +12.4 % (52) |
+
+- **Veredicto**: **ambas refutadas** con los criterios fijados de antemano.
+  - #3 (1h): no mejora nada relevante; con costos ×2 salta el kill igual que la base.
+  - #4 (4h): DSR 0.55 < 0.95, walk-forward de BTC negativo, con costos ×2 el beneficio
+    queda en cero y solo 52–55 trades fuera de muestra por símbolo.
+  - Lo que **sí** hizo el filtro: bajar el riesgo de cola (P(DD > 15 %) de 2.7 % a 0.3 %
+    en 4h) y apagarse en los tramos bajistas (6 de 26 ventanas sin operar). Es un efecto
+    sobre el riesgo, no un edge.
+  - ⚠️ El +12.4 % de ETH 4h es justo el tipo de resultado aislado que la bitácora existe
+    para no perseguir: 52 trades, un solo símbolo, elegido después de ver los datos.
+    Probarlo solo en ETH sería una prueba NUEVA (#5) y debería registrarse antes.
+  - Efecto de calentar las ventanas de train: el walk-forward de la base cambió poco
+    respecto de #1/#2 (p. ej. ETH 4h de +1.7 % a +4.0 %); las conclusiones de #1/#2 no cambian.
+
+## #5 y #6 — Reversión a la media: comprar caídas dentro de una tendencia alcista (1h y 4h) · 2026-10-13
+
+*Pre-registrado: este texto se commitea ANTES de escribir el código y de ver resultados.*
+
+- **Hipótesis**: las 4 pruebas de trend following (comprar fuerza) no tienen edge. La
+  familia opuesta: dentro de una tendencia alcista de largo plazo, las caídas bruscas de
+  corto plazo tienden a rebotar. Comprar el sobrevendido y salir en el rebote.
+- **Reglas** (estrategia nueva `mean_reversion`; solo largos; mismo risk engine):
+  - **Tendencia**: solo con el cierre diario sobre su media de 200 días (el mismo filtro
+    de #3/#4, por activo, días UTC completos).
+  - **Entrada**: RSI de 2 períodos (Wilder) sobre los cierres de las barras < **10**.
+  - **Salida**: cierre de barra **por encima de su media simple de 5 barras** (el rebote),
+    o **10 barras** sin rebote (time stop), o el filtro de tendencia se apaga.
+  - **Stop nativo** siempre: entrada − **2.5 ATR(14)**, fijo (sin trailing).
+  - Tras una salida puede reentrar en la próxima señal: no espera nada extra.
+- **Parámetros fijados ANTES**: RSI 2 / umbral 10 / salida SMA 5 / 10 barras / 2.5 ATR /
+  200 días. **No se prueban otros valores** sin registrarlos acá como prueba nueva. (El
+  walk-forward optimiza dentro de una grilla chica, umbral ∈ {5, 10, 15} y salida ∈
+  {3, 5, 8}, y descuenta esas combinaciones en su propio Deflated Sharpe.)
+- **Pruebas**: 1h y 4h = 2 nuevas → contador **6**. El workflow corre base, #3/#4 y esta
+  lado a lado, y el Deflated Sharpe se calcula con 6.
+- **Refuta**: los criterios de las Reglas (DSR < 0.95, walk-forward fuera de muestra ≤ 0
+  en algún símbolo, muere con costos ×2, < 100 trades fuera de muestra). Ojo: la
+  reversión opera seguido y gana poco por trade, así que el test de **costos ×2** es el
+  que más la amenaza.
+- **Resultado** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38468244798);
+  Deflated Sharpe con 6 pruebas):
+
+  | | **#5 reversión 1h** | **#6 reversión 4h** |
+  |---|---|---|
+  | Backtest | −14.6 %, **kill a 15.0 % de DD** | −14.2 %, **kill a 15.2 % de DD** |
+  | Sharpe · PF | −1.23 · 0.59 | −0.79 · 0.69 |
+  | Trades · win rate | 629 · 59 % | 674 · 65 % |
+  | Ganancia / pérdida media | 5.7 / 13.9 USDT | 7.2 / 19.7 USDT |
+  | Deflated Sharpe | 0.00 | 0.00 |
+  | Costos ×2 | −15.0 %, kill | −14.3 %, kill |
+  | Monte Carlo P(DD > 15 %) | 97.8 % | 79.5 % |
+  | WF fuera de muestra BTC | −29.9 % (1 124 tr.) | −2.4 % (394) |
+  | WF fuera de muestra ETH | −37.1 % (1 393 tr.) | −15.3 % (454) |
+
+- **Veredicto**: **ambas refutadas**, y con más claridad que cualquier prueba anterior:
+  falla **todos** los criterios menos el de cantidad de trades.
+  - El clásico perfil de reversión mal pagada: gana seguido (59–65 %) pero gana poco y
+    pierde mucho (la pérdida media es 2.5–2.7× la ganancia media). Los rebotes chicos no
+    alcanzan a pagar los stops de 2.5 ATR ni los costos.
+  - Ni siquiera la grilla del walk-forward la salva: en 1h el óptimo de cada ventana es
+    casi siempre el umbral más extremo (RSI < 5), y aun así pierde fuera de muestra.
+  - El filtro de 200 días no alcanza: "tendencia alcista de largo plazo" no impide que
+    las caídas de corto plazo sigan cayendo en cripto (momentum de corto plazo).
+  - Ni ajustar parámetros tiene sentido acá: todas las combinaciones de la grilla pierden.
+    La familia "comprar sobrevendido en barras intradiarias" queda descartada para BTC/ETH.
 
 ---
 
@@ -103,5 +211,5 @@ Segunda corrida: **9/9 OK** contra la testnet real. Dejó a la vista un último 
 - **1d**: ~2 800 barras por símbolo. Los parámetros están en barras (EMA 100 = 100 días).
   Ojo: el warmup del walk-forward del workflow sería 91 barras (3 meses) y la estrategia
   necesita 131–200 (`TrendFollowing.warmup_bars`): habría que fijarlo explícitamente.
-- **Filtro de régimen de mercado**: operar solo con BTC sobre su media de 200 días.
-  Necesita código nuevo en la estrategia.
+- ~~Filtro de régimen de mercado (media de 200 días)~~ → #3/#4, refutadas.
+- ~~Reversión a la media intradiaria (RSI 2)~~ → #5/#6, refutadas.

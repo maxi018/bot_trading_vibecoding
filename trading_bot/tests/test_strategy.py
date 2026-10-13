@@ -155,3 +155,97 @@ def test_external_stop_out_is_detected():
     ctx.qty = 0.0  # el stop nativo del exchange nos sacó
     sigs = strat.on_bar(bar(301, prices[-1] * 1.006), ctx)
     assert not sigs  # espera cruce nuevo, no reentra de inmediato
+
+
+# ------------------------------------------- filtro de 200 días (experimentos #3/#4)
+DAY = 86_400_000
+
+
+def test_daily_sma_uses_only_completed_days():
+    from quantbot.strategy.indicators import DailySMA
+
+    f = DailySMA(3)
+    t0 = 1_700_006_400_000  # 00:00 UTC
+    assert t0 % DAY == 0
+
+    def b(ts_close: int, c: float) -> Bar:
+        return Bar("BTC/USDT", ts_close - H, ts_close, c, c, c, c, 1)
+
+    for d, c in enumerate((100.0, 110.0, 120.0), start=1):
+        f.update(b(t0 + d * DAY - H, 999.0))  # barra intradiaria: no cuenta
+        f.update(b(t0 + d * DAY, c))  # la que cierra a las 00:00: cierre del día
+    assert f.ready and f.value == pytest.approx(110.0) and f.last_close == 120.0
+    f.update(b(t0 + 4 * DAY - H, 1.0))  # día en curso: no mueve nada (sin look-ahead)
+    assert f.value == pytest.approx(110.0) and f.last_close == 120.0
+
+
+def test_daily_sma_with_unaligned_bars_closes_day_on_next_day_first_bar():
+    """Bug encontrado al escribir los tests: con barras que no cierran a las 00:00 (datos
+    sintéticos, otros exchanges) el filtro no registraba ningún día y nunca operaba."""
+    from quantbot.strategy.indicators import DailySMA
+
+    f = DailySMA(2)
+    t0 = 1_700_006_400_000 + 30 * 60_000  # barras que cierran a las hh:30
+
+    def b(i: int, c: float) -> Bar:
+        ts = t0 + i * H
+        return Bar("BTC/USDT", ts - H, ts, c, c, c, c, 1)
+
+    for i in range(24):  # día 1: barras que cierran de 00:30 a 23:30
+        f.update(b(i, 100.0 + i))
+    assert f.last_close is None  # el día 1 todavía puede seguir: no cuenta
+    f.update(b(24, 500.0))  # primera barra del día 2 -> el día 1 terminó
+    assert f.last_close == 123.0 and not f.ready  # cierre del día 1 = su última barra
+    for i in range(25, 49):  # resto del día 2 + primera barra del día 3
+        f.update(b(i, 200.0))
+    assert f.ready and f.value == pytest.approx((123.0 + 200.0) / 2)
+
+
+def test_filter_blocks_entries_until_it_has_history():
+    prices = [100 * (1.003**i) for i in range(400)]
+    plain = run_series(TrendFollowingStrategy(small_cfg()), prices, Ctx())
+    filt = run_series(TrendFollowingStrategy(small_cfg(trend_filter_days=10)), prices, Ctx())
+
+    def first_entry(outs):
+        return next(i for i, o in enumerate(outs) if any(s.direction is Direction.LONG for s in o))
+
+    midnights = [i for i in range(400) if bar(i, 1).ts % DAY == 0]
+    assert first_entry(plain) < midnights[9] <= first_entry(filt)  # recién con 10 días
+
+
+class _FakeDaily:
+    def __init__(self, sma: float, last: float) -> None:
+        self.value, self.last_close = sma, last
+
+    def update(self, bar: Bar) -> None:
+        pass
+
+
+def test_open_long_exits_when_filter_turns_off_and_reenters_without_new_cross():
+    strat = TrendFollowingStrategy(small_cfg(trend_filter_days=2))
+    st = strat._st["BTC/USDT"]
+    ctx = Ctx()
+    st.daily = _FakeDaily(sma=50.0, last=100.0)  # filtro encendido
+    prices = [100 * (1.003**i) for i in range(304)]  # serie exacta: sin saltos de vol
+    run_series(strat, prices[:300], ctx)
+    ctx.qty = 1.0  # entró
+    assert any(s.direction is Direction.LONG for s in strat.on_bar(bar(300, prices[300]), ctx))
+
+    st.daily = _FakeDaily(sma=200.0, last=100.0)  # se apaga: cierre diario bajo la media
+    (sig,) = strat.on_bar(bar(301, prices[301]), ctx)
+    assert sig.direction is Direction.FLAT and sig.reason == "trend_filter"
+
+    ctx.qty = 0.0  # salida ejecutada
+    assert not strat.on_bar(bar(302, prices[302]), ctx)  # filtro apagado: no reentra
+    st.daily = _FakeDaily(sma=50.0, last=100.0)  # vuelve a encenderse, tendencia sigue
+    sigs = strat.on_bar(bar(303, prices[303]), ctx)
+    assert any(s.direction is Direction.LONG for s in sigs)  # sin esperar un cruce nuevo
+
+
+def test_warmup_covers_the_filter():
+    cfg = small_cfg(trend_filter_days=200, timeframe="1h")
+    assert TrendFollowingStrategy(cfg).warmup_bars() >= 201 * 24
+    assert (
+        TrendFollowingStrategy(small_cfg(trend_filter_days=200, timeframe="4h")).warmup_bars()
+        >= 201 * 6
+    )

@@ -8,7 +8,7 @@ Arquitectura, Riesgo y Validación"*. Python 3.11+, `asyncio`, tipado estricto
 (`mypy --strict` limpio), **núcleo sin dependencias externas** (solo stdlib).
 
 ```
-156 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
+171 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
 backtest == paper == live (mismo pipeline)
 ```
 
@@ -259,6 +259,9 @@ Los resultados quedan en el resumen del run y como artifacts (`market-data` con 
 datos, y cada timeframe evaluado cuenta como una prueba (`--trials` = cantidad de
 timeframes). Si empezás a tunear mirando estos resultados, subí `--trials` (Deflated
 Sharpe) o el número deja de significar algo.
+
+**Experimentos**: cada variante vive en `config/experiments/` como copia de `default.toml`
+con el cambio mínimo, y el workflow la corre al lado de la base (`configs`).
 
 **Bitácora**: cada idea probada contra datos reales (y su resultado, bueno o malo) va en
 [`research/LOG.md`](research/LOG.md), junto con el contador de pruebas acumuladas.

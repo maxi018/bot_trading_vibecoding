@@ -31,6 +31,111 @@ class EMA:
         return self.n >= self.period
 
 
+class SMA:
+    """Media simple de las últimas N barras."""
+
+    def __init__(self, period: int) -> None:
+        self.period = period
+        self._xs: deque[float] = deque(maxlen=period)
+        self._sum = 0.0
+
+    def update(self, x: float) -> float | None:
+        if len(self._xs) == self.period:
+            self._sum -= self._xs[0]
+        self._xs.append(x)
+        self._sum += x
+        return self.value
+
+    @property
+    def ready(self) -> bool:
+        return len(self._xs) == self.period
+
+    @property
+    def value(self) -> float | None:
+        return self._sum / self.period if self.ready else None
+
+
+class RSI:
+    """RSI de Wilder. Con período 2 reacciona a 2-3 barras: mide sobrecompra/sobreventa
+    de muy corto plazo, no tendencia."""
+
+    def __init__(self, period: int) -> None:
+        self.period = period
+        self._prev: float | None = None
+        self._gain = self._loss = 0.0
+        self._n = 0
+        self.value: float | None = None
+
+    def update(self, close: float) -> float | None:
+        if self._prev is None:
+            self._prev = close
+            return None
+        change = close - self._prev
+        self._prev = close
+        gain, loss = max(change, 0.0), max(-change, 0.0)
+        self._n += 1
+        if self._n <= self.period:  # semilla: promedio simple de los primeros cambios
+            self._gain += gain / self.period
+            self._loss += loss / self.period
+            if self._n < self.period:
+                return None
+        else:
+            self._gain = (self._gain * (self.period - 1) + gain) / self.period
+            self._loss = (self._loss * (self.period - 1) + loss) / self.period
+        if self._loss == 0:
+            self.value = 100.0 if self._gain > 0 else 50.0
+        else:
+            self.value = 100.0 - 100.0 / (1.0 + self._gain / self._loss)
+        return self.value
+
+
+class DailySMA:
+    """Media simple de los últimos N cierres DIARIOS (días UTC completos).
+
+    El cierre de un día es el de su última barra. Se registra cuando el día TERMINÓ: en
+    la barra que cierra justo a las 00:00 UTC (datos alineados, como los de Binance) o, si
+    las barras no están alineadas, al llegar la primera barra del día siguiente. Un día
+    en curso nunca cuenta: sin look-ahead, y el filtro cambia a lo sumo una vez por día.
+    """
+
+    DAY_MS = 86_400_000
+
+    def __init__(self, days: int) -> None:
+        self.days = days
+        self._closes: deque[float] = deque(maxlen=days)
+        self._sum = 0.0
+        self._pending: tuple[int, float] | None = None  # (día UTC, último cierre visto)
+
+    def _push(self, close: float) -> None:
+        if len(self._closes) == self.days:
+            self._sum -= self._closes[0]
+        self._closes.append(close)
+        self._sum += close
+
+    def update(self, bar: Bar) -> None:
+        day = (bar.ts - 1) // self.DAY_MS  # una barra que cierra a las 00:00 es del día previo
+        if self._pending is not None and day > self._pending[0]:
+            self._push(self._pending[1])  # barras desalineadas: el día anterior terminó
+            self._pending = None
+        if bar.ts % self.DAY_MS == 0:
+            self._push(bar.close)  # cierra justo a las 00:00: el día terminó ahora
+            self._pending = None
+        else:
+            self._pending = (day, bar.close)
+
+    @property
+    def ready(self) -> bool:
+        return len(self._closes) == self.days
+
+    @property
+    def last_close(self) -> float | None:
+        return self._closes[-1] if self._closes else None
+
+    @property
+    def value(self) -> float | None:
+        return self._sum / self.days if self.ready else None
+
+
 class ATR:
     """Average True Range con suavizado de Wilder."""
 
