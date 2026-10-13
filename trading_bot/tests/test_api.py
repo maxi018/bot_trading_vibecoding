@@ -359,3 +359,41 @@ async def test_backtest_rejects_path_traversal_and_bad_params(client):
     assert r.status_code == 422
     r = await client.post("/api/backtests", headers=AUTH, json={"synthetic_bars": 10})
     assert r.status_code == 422
+
+
+# ------------------------------------------------------------ métricas / referencia
+async def test_reference_backtest_roundtrip(client, app):
+    r = await client.put("/api/metrics/reference", headers=AUTH, json=OP | {"job_id": "bt-999"})
+    assert r.status_code == 409
+    job = (
+        await client.post(
+            "/api/backtests", headers=AUTH, json={"synthetic_bars": 1500, "mc_sims": 200}
+        )
+    ).json()
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        st = (await client.get(f"/api/backtests/{job['id']}", headers=AUTH)).json()["status"]
+        if st in ("done", "error"):
+            break
+        await asyncio.sleep(0.2)
+    assert st == "done"
+    r = await client.put("/api/metrics/reference", headers=AUTH, json=OP | {"job_id": job["id"]})
+    assert r.status_code == 200
+    m = (await client.get("/api/metrics", headers=AUTH)).json()
+    ref = m["reference"]
+    assert ref["job_id"] == job["id"] and ref["equity"] and "sharpe" in ref["report"]
+    assert ref["montecarlo"] is None or "histogram" not in ref["montecarlo"]
+    assert m["timeframe_ms"] == 3_600_000 and m["drawdown_kill"] == 0.15
+    ev = (await client.get("/api/events?kind=command", headers=AUTH)).json()["events"]
+    assert ev[0]["title"].startswith("SET_REFERENCE")
+
+
+async def test_equity_curve_skips_warmup(app):
+    from quantbot.core.models import Bar
+
+    app.core.trading_start_ts = 3 * 3_600_000
+    for i in range(5):
+        bar = Bar("BTC/USDT", i * 3_600_000, (i + 1) * 3_600_000, 100, 101, 99, 100, 1)
+        app._after_bar(bar)
+    rows = app.journal.query("SELECT ts FROM equity ORDER BY ts")
+    assert [r["ts"] for r in rows] == [3 * 3_600_000, 4 * 3_600_000, 5 * 3_600_000]

@@ -101,6 +101,10 @@ class RiskParamsBody(Operator):
     confirm_relax: bool = False
 
 
+class ReferenceBody(Operator):
+    job_id: str = Field(max_length=40)
+
+
 class WalkForwardSpec(BaseModel):
     grid: dict[str, list[float]]
     train: int = Field(ge=200, le=50_000)
@@ -142,7 +146,7 @@ def create_api(app: TradingApp, token: str) -> FastAPI:
     api.add_middleware(
         CORSMiddleware,
         allow_origins=list(app.cfg.api.cors_origins),
-        allow_methods=["GET", "POST", "PATCH"],
+        allow_methods=["GET", "POST", "PATCH", "PUT"],
         allow_headers=["Authorization", "Content-Type"],
     )
 
@@ -249,6 +253,15 @@ def create_api(app: TradingApp, token: str) -> FastAPI:
         with command_errors():
             app.cmd_rearm(body.operator, body.confirm_text)
         return {"status": app.status}
+
+    @r.put("/api/metrics/reference")
+    async def set_reference(body: ReferenceBody) -> dict[str, Any]:
+        job = jobs.jobs.get(body.job_id)
+        if job is None or job.status != "done" or not job.result:
+            raise HTTPException(409, "El backtest no existe o no terminó")
+        ref = state.reference_from_job(job.id, job.summary() | {"result": job.result})
+        app.cmd_set_reference(body.operator, ref)
+        return {"reference": {k: ref[k] for k in ("job_id", "created_at", "n_bars")}}
 
     @r.patch("/api/risk/params")
     async def risk_params(body: RiskParamsBody) -> dict[str, Any]:

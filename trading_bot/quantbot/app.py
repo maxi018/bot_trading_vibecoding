@@ -393,8 +393,11 @@ class TradingApp:
         if buf is None:
             buf = self.bars[bar.symbol] = deque(maxlen=2000)
         buf.append(bar)
-        m = self.portfolio.snapshot(self.clock.now_ms())
-        self.journal.record_equity(bar.ts, m.equity, m.drawdown_from_peak)
+        # La curva de equity arranca cuando el bot OPERA: la historia del warmup
+        # (retornos en cero) diluiría la volatilidad y falsearía Sharpe/Sortino.
+        if bar.ts >= self.core.trading_start_ts:
+            m = self.portfolio.snapshot(self.clock.now_ms())
+            self.journal.record_equity(bar.ts, m.equity, m.drawdown_from_peak)
         self._publish(
             {
                 "type": "bar",
@@ -530,6 +533,16 @@ class TradingApp:
         self.core.reset_after_rearm()
         self.risk.pause(f"rearmado por {operator}: revisar posiciones y hacer RESUME")
         self._audit(operator, "REARM")
+
+    def cmd_set_reference(self, operator: str, reference: dict[str, Any]) -> None:
+        """Guarda un backtest terminado como referencia para comparar contra live."""
+        import json
+
+        path = Path(self.cfg.state_dir) / "reference_backtest.json"
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(reference, default=str), encoding="utf-8")
+        tmp.replace(path)
+        self._audit(operator, "SET_REFERENCE", {"job_id": reference.get("job_id")})
 
     def cmd_update_risk(
         self, operator: str, changes: dict[str, float], confirm_relax: bool

@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ..backtest.metrics import performance_report
-from ..core.clock import periods_per_year
+from ..core.clock import periods_per_year, timeframe_to_ms
 from ..risk.params import CONSERVATIVE_DIRECTION
 
 if TYPE_CHECKING:
@@ -290,6 +290,23 @@ def metrics(app: TradingApp) -> dict[str, Any]:
         "report": clean,
         "equity": _downsample([[r["ts"], r["equity"], r["drawdown"]] for r in eq_rows]),
         "reference": reference,
+        "timeframe_ms": timeframe_to_ms(app.cfg.strategy.timeframe),
+        "drawdown_kill": app.cfg.risk.total_drawdown_kill,
+    }
+
+
+def reference_from_job(job_id: str, job: dict[str, Any]) -> dict[str, Any]:
+    """Lo que se guarda como referencia: reporte, curva y Montecarlo (sin el histograma)."""
+    result = job["result"]
+    mc = result.get("montecarlo")
+    return {
+        "job_id": job_id,
+        "created_at": job.get("finished_at"),
+        "spec": job.get("spec"),
+        "n_bars": result.get("n_bars"),
+        "report": result["report"],
+        "equity": result["equity"],
+        "montecarlo": {k: v for k, v in mc.items() if k != "histogram"} if mc else None,
     }
 
 
