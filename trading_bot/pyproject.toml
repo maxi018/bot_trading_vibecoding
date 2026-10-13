@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quantbot"
+version = "0.1.0"
+description = "Bot de trading event-driven/async con risk engine con poder de veto."
+readme = "README.md"
+requires-python = ">=3.11"
+# El núcleo (risk, estrategia, backtest, paper) usa SOLO la stdlib:
+# menos dependencias = menos superficie de fallo en producción.
+dependencies = []
+
+[project.optional-dependencies]
+live = [
+    "ccxt>=4.3",        # wrapper REST/WS de exchanges
+    "websockets>=12",   # market data en vivo
+]
+data = [
+    "duckdb>=1.0",      # consultas sobre Parquet
+    "pyarrow>=15",      # escritura de Parquet
+]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.10",
+    "ruff>=0.5",
+]
+
+[project.scripts]
+quantbot = "quantbot.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["quantbot*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # tildes en comentarios/strings en español

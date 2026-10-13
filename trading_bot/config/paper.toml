@@ -1,0 +1,8 @@
+# Paper trading: datos en vivo, ejecución simulada, MISMO código que producción.
+mode = "paper"
+initial_cash = 10000.0
+state_dir = "./state/paper"
+
+[strategy]
+symbols = ["BTC/USDT", "ETH/USDT"]
+timeframe = "1h"

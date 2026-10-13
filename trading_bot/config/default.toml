@@ -1,0 +1,79 @@
+# quantbot - configuración por defecto (CONSERVADORA).
+# Los secretos NO van acá: usar variables de entorno (ver .env.example).
+# Claves desconocidas hacen fallar el arranque (un typo en un límite de riesgo es un bug).
+
+mode = "paper"
+initial_cash = 10000.0
+state_dir = "./state"
+log_level = "INFO"
+
+[strategy]
+name = "trend_following"
+symbols = ["BTC/USDT"]
+timeframe = "1h"
+fast_ema = 20
+slow_ema = 100
+atr_period = 14
+atr_stop_mult = 2.5
+time_stop_bars = 0
+allow_short = false
+vol_lookback = 30
+vol_history = 500
+max_vol_percentile = 0.90
+min_efficiency_ratio = 0.25
+er_period = 30
+
+[risk]
+target_vol_annual = 0.15
+vol_ewma_span = 30
+kelly_fraction = 0.25
+kelly_min_trades = 30
+max_leverage_per_asset = 1.0
+rebalance_threshold = 0.25
+max_risk_per_trade = 0.01
+max_position_pct = 0.20
+max_gross_leverage = 1.0
+max_correlated_exposure = 0.40
+correlation_threshold = 0.70
+min_order_notional = 10.0
+daily_drawdown_halt = 0.03
+total_drawdown_kill = 0.15
+expected_slippage_bps = 5.0
+slippage_anomaly_multiplier = 3.0
+slippage_window = 20
+max_slippage_bps = 30.0
+consecutive_losses_reduce = 8
+size_reduction_factor = 0.5
+max_data_age_s = 5.0
+max_reject_rate = 0.10
+reject_window = 50
+min_orders_for_reject_rate = 10
+max_price_deviation_pct = 0.05
+max_order_notional_pct = 0.25
+max_orders_per_minute = 20
+max_order_size_vs_avg = 5.0
+market_protection_bps = 10.0
+exit_protection_bps = 100.0
+
+[costs]
+maker_fee = 0.0002
+taker_fee = 0.0005
+half_spread_bps = 2.0
+slippage_bps = 3.0
+latency_ms = 250
+
+[exchange]
+name = "binance"
+testnet = true
+rate_limit_per_s = 5.0
+rate_limit_burst = 10
+request_timeout_s = 10.0
+max_retries = 4
+reconcile_interval_s = 30.0
+heartbeat_timeout_s = 15.0
+dead_man_switch_s = 60
+ws_url = "wss://stream.binance.com:9443/stream"
+
+[alerts]
+enabled = true
+min_interval_s = 30.0

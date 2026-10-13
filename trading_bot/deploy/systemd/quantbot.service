@@ -1,0 +1,33 @@
+[Unit]
+Description=quantbot trading bot
+After=network-online.target chrony.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=quantbot
+Group=quantbot
+WorkingDirectory=/opt/quantbot
+EnvironmentFile=/etc/quantbot/quantbot.env
+ExecStart=/opt/quantbot/.venv/bin/python -m quantbot paper --config /opt/quantbot/config/paper.toml
+# SIGTERM -> safe_shutdown (cancela entradas, deja stops nativos vivos)
+KillSignal=SIGTERM
+TimeoutStopSec=60
+# Reinicio ante crash, pero con freno: 5 reinicios en 10 min -> se queda abajo.
+Restart=on-failure
+RestartSec=30
+StartLimitIntervalSec=600
+StartLimitBurst=5
+# Exit 2 = kill-switch activo / preflight fallido: NO reiniciar en loop.
+RestartPreventExitStatus=2 3
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/quantbot /opt/quantbot/state
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
