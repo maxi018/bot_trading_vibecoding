@@ -15,7 +15,7 @@ el número tiene que saber que hubo 10.
 4. **Nada pasa a paper** sin: Deflated Sharpe ≥ 0.95, walk-forward fuera de muestra
    positivo en cada símbolo, sobrevivir costos ×2, y ≥ 100 trades fuera de muestra.
 
-**Pruebas acumuladas: 6** (todas corren en el workflow → `TRIALS_PRIOR = 0`)
+**Pruebas acumuladas: 9** (todas corren en el workflow → `TRIALS_PRIOR = 0`)
 
 ---
 
@@ -160,6 +160,33 @@ el número tiene que saber que hubo 10.
     las caídas de corto plazo sigan cayendo en cripto (momentum de corto plazo).
   - Ni ajustar parámetros tiene sentido acá: todas las combinaciones de la grilla pierden.
     La familia "comprar sobrevendido en barras intradiarias" queda descartada para BTC/ETH.
+
+## #7, #8 y #9 — Las mismas tres estrategias en velas diarias (1d) · 2026-10-13
+
+*Pre-registrado: este texto se commitea ANTES de correr nada con datos reales.*
+
+- **Hipótesis**: en 1h y 4h los costos y el ruido de corto plazo se comen la señal. En
+  velas diarias hay muchas menos operaciones (costos totales mucho menores) y el
+  movimiento por trade es mayor que el costo. Además, la reversión con RSI(2) es una
+  estrategia diseñada originalmente para velas diarias (Connors): en 1h/4h la probamos
+  fuera de su escala natural.
+- **Qué cambia**: solo el timeframe. Los TOML quedan idénticos, así que los parámetros (en
+  barras) pasan a ser días:
+  - **#7** base trend following: EMA 20/100 días, stop 2.5 ATR(14 días).
+  - **#8** + filtro de 200 días (#3/#4).
+  - **#9** reversión a la media (#5/#6): RSI(2) < 10, salida sobre SMA 5, time stop 10 días.
+  - Walk-forward: train 1 año (365 barras), test 3 meses (91), mismas grillas.
+- **Pruebas**: 3 nuevas → contador **9**. El workflow pasa a correr 1h, 4h y 1d con las
+  tres configs, y el Deflated Sharpe se calcula con 9.
+- **Refuta**: los criterios de las Reglas, sin cambios.
+- ⚠️ **Advertencia escrita de antemano — poder estadístico**: con ~2 800 velas por símbolo,
+  el trend following va a hacer del orden de **20 trades fuera de muestra por símbolo**
+  (lo vimos con datos sintéticos). El criterio de ≥ 100 trades es casi **inalcanzable por
+  diseño** para #7/#8; #9 puede rondarlo. **El criterio no se relaja después de ver los
+  resultados.** Si #7/#8 dieran positivos en ambos símbolos, eso no los aprueba: solo
+  justificaría pre-registrar una prueba nueva con más activos (más trades por
+  diversificación, no por más parámetros).
+- **Resultado**: *(pendiente)*
 
 ---
 
