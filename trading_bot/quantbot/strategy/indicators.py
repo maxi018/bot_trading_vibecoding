@@ -31,6 +31,64 @@ class EMA:
         return self.n >= self.period
 
 
+class SMA:
+    """Media simple de las últimas N barras."""
+
+    def __init__(self, period: int) -> None:
+        self.period = period
+        self._xs: deque[float] = deque(maxlen=period)
+        self._sum = 0.0
+
+    def update(self, x: float) -> float | None:
+        if len(self._xs) == self.period:
+            self._sum -= self._xs[0]
+        self._xs.append(x)
+        self._sum += x
+        return self.value
+
+    @property
+    def ready(self) -> bool:
+        return len(self._xs) == self.period
+
+    @property
+    def value(self) -> float | None:
+        return self._sum / self.period if self.ready else None
+
+
+class RSI:
+    """RSI de Wilder. Con período 2 reacciona a 2-3 barras: mide sobrecompra/sobreventa
+    de muy corto plazo, no tendencia."""
+
+    def __init__(self, period: int) -> None:
+        self.period = period
+        self._prev: float | None = None
+        self._gain = self._loss = 0.0
+        self._n = 0
+        self.value: float | None = None
+
+    def update(self, close: float) -> float | None:
+        if self._prev is None:
+            self._prev = close
+            return None
+        change = close - self._prev
+        self._prev = close
+        gain, loss = max(change, 0.0), max(-change, 0.0)
+        self._n += 1
+        if self._n <= self.period:  # semilla: promedio simple de los primeros cambios
+            self._gain += gain / self.period
+            self._loss += loss / self.period
+            if self._n < self.period:
+                return None
+        else:
+            self._gain = (self._gain * (self.period - 1) + gain) / self.period
+            self._loss = (self._loss * (self.period - 1) + loss) / self.period
+        if self._loss == 0:
+            self.value = 100.0 if self._gain > 0 else 50.0
+        else:
+            self.value = 100.0 - 100.0 / (1.0 + self._gain / self._loss)
+        return self.value
+
+
 class DailySMA:
     """Media simple de los últimos N cierres DIARIOS (días UTC completos).
 
