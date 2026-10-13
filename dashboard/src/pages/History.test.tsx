@@ -29,4 +29,9 @@ describe("TradeRow", () => {
     expect(cell(rows[0]!, "vs esperado").className).toContain("up");
     expect(cell(rows[1]!, "vs esperado").textContent).toBe("—");
   });
+  it("un desvío microscópico es cero neutro (sin '−0.0' en verde)", () => {
+    const { container } = render(<table><tbody><TradeRow t={{ ...base, slippage_bps: 4.999 }} /></tbody></table>);
+    expect(cell(container, "vs esperado").textContent).toBe("0.0 bps");
+    expect(cell(container, "vs esperado").className).not.toMatch(/\b(up|down)\b/);
+  });
 });

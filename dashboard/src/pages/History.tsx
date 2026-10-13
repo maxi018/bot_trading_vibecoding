@@ -97,7 +97,7 @@ export function HistoryPage({ conn, symbols }: { conn: LiveConnection; symbols: 
         <Kpi label="Trades" value={String(s.n)} sub={s.n < 100 && s.n > 0 ? "< 100: muestra anecdótica" : undefined} />
         <Kpi label="Win rate" value={pct(s.winRate, { digits: 1 })} sub={`${s.wins} ganadores`} />
         <Kpi label="PnL neto" value={money(s.netPnl, { signed: true })} cls={dirClass(s.netPnl)} sub={`fees ${money(s.fees)}`} />
-        <Kpi label="Ganancia / pérdida promedio" value={`${money(s.avgWin)} / ${money(s.avgLoss)}`} />
+        <Kpi label="Ganancia promedio" value={money(s.avgWin)} sub={`pérdida promedio ${money(s.avgLoss)}`} />
         <Kpi label="Slippage real vs esperado" value={s.avgSlippage === null ? "—" : `${num(s.avgSlippage, 1)} bps`}
           sub={s.expectedSlippage === null ? undefined : `esperado ${num(s.expectedSlippage, 1)} bps · ${s.slippageRatio === null ? "—" : `${num(s.slippageRatio, 1)}×`}`}
           cls={s.slippageRatio !== null && s.slippageRatio >= BREAKER_MULT ? "down" : ""} />
@@ -140,7 +140,9 @@ function Kpi({ label, value, sub, cls }: { label: string; value: string; sub?: s
 }
 
 export function TradeRow({ t }: { t: Trade }) {
-  const diff = t.slippage_bps === null ? null : t.slippage_bps - t.expected_slippage_bps;
+  const raw = t.slippage_bps === null ? null : t.slippage_bps - t.expected_slippage_bps;
+  // Desvíos por debajo de la resolución mostrada (0.1 bps) son cero: sin signo ni color.
+  const diff = raw === null ? null : Math.abs(raw) < 0.05 ? 0 : raw;
   return (
     <tr>
       <td data-label="Cierre" className="num secondary">{dateTime(t.exit_ts)}</td>
@@ -155,7 +157,7 @@ export function TradeRow({ t }: { t: Trade }) {
       <td data-label="Fees" className="r num secondary">{money(t.fees)}</td>
       <td data-label="Salida por">{REASON[t.exit_reason] ?? t.exit_reason}</td>
       <td data-label="Slippage real" className="r num">{t.slippage_bps === null ? "—" : `${num(t.slippage_bps, 1)} bps`}</td>
-      <td data-label="vs esperado" className={`r num ${diff === null ? "" : diff > 0 ? "down" : "up"}`}>
+      <td data-label="vs esperado" className={`r num ${diff === null || diff === 0 ? "" : diff > 0 ? "down" : "up"}`}>
         {diff === null ? "—" : `${diff > 0 ? "+" : diff < 0 ? "−" : ""}${num(Math.abs(diff), 1)} bps`}
       </td>
     </tr>
@@ -178,16 +180,16 @@ function SlippageChart({ trades }: { trades: Trade[] }) {
     <>
       <div style={{ width: "100%", height: 240 }}>
         <ResponsiveContainer>
-          <BarChart data={data} margin={{ top: 16, right: 12, bottom: 0, left: 0 }} barCategoryGap={2}>
+          <BarChart data={data} margin={{ top: 16, right: 96, bottom: 0, left: 0 }} barCategoryGap={2}>
             <CartesianGrid vertical={false} stroke={css("--border")} />
             <XAxis dataKey="i" tick={{ fill: css("--text-muted"), fontSize: 11 }} tickLine={false} axisLine={{ stroke: css("--border") }} />
             <YAxis tick={{ fill: css("--text-muted"), fontSize: 11 }} tickLine={false} axisLine={false} width={40} unit="" />
             <Tooltip cursor={{ fill: css("--surface-3") }} content={<SlipTooltip expected={expected} />} />
             <ReferenceLine y={0} stroke={css("--border")} />
             <ReferenceLine y={expected} stroke={css("--text-secondary")} strokeDasharray="4 4"
-              label={{ value: `esperado ${expected} bps`, position: "insideTopRight", fill: css("--text-secondary"), fontSize: 11 }} />
+              label={{ value: `esperado ${expected}`, position: "right", fill: css("--text-secondary"), fontSize: 11 }} />
             <ReferenceLine y={breaker} stroke={css("--critical")} strokeDasharray="6 3"
-              label={{ value: `umbral breaker ${breaker} bps (promedio)`, position: "insideTopRight", fill: css("--down"), fontSize: 11 }} />
+              label={{ value: `breaker ${breaker}`, position: "right", fill: css("--down"), fontSize: 11 }} />
             <Bar dataKey="slip" radius={[3, 3, 0, 0]} isAnimationActive={false}>
               {data.map((d) => <Cell key={d.i} fill={d.slip > breaker ? over : bar} />)}
             </Bar>
