@@ -212,8 +212,11 @@ class TradingApp:
                 seed=d.seed,
                 start_price=d.start_price,
             )
+        ws_url, rest = BinanceSpotAdapter.endpoints(self.cfg.mode, self.cfg.exchange)
+        if rest == BinanceSpotAdapter.TESTNET_REST:
+            log.warning("Live en TESTNET: market data de %s", ws_url)
         adapter = BinanceSpotAdapter(
-            self.cfg.strategy.symbols, self.cfg.strategy.timeframe, self.cfg.exchange.ws_url
+            self.cfg.strategy.symbols, self.cfg.strategy.timeframe, ws_url, rest_base=rest
         )
         return ResilientWebSocketFeed(
             "binance_ws",

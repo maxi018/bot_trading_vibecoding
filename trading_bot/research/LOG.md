@@ -65,6 +65,20 @@ Los datos reales destaparon bugs que los sintéticos nunca mostraron:
   equity (5–10× de más). Corregido + test.
 - **CI**: `python … | tee` corría sin `pipefail`; un backtest roto daba verde. Corregido.
 
+Revisión del adaptador de Binance con tests de contrato (CCXT con la capa HTTP
+interceptada, sin red), antes de tocar la testnet:
+
+- **Posiciones spot leídas de futuros**: Binance declara `fetchPositions` (por sus
+  futuros) y el adaptador lo usaba también en spot → "sin posiciones" con BTC en la
+  cuenta → kill falso, y `flatten_all` no cerraba nada. Ahora spot = saldo del activo
+  base (ignorando polvo menor al mínimo del mercado).
+- **Fee en BTC**: la posición local quedaba más grande que el saldo real → discrepancia
+  en la reconciliación (tolerancia 1e-6) y stops que intentaban vender BTC inexistente.
+  Ahora el fill trae `base_fee` y el portfolio lo descuenta de la posición.
+- **Fee en BNB** se registraba como USDT; ahora se valúa con el ticker.
+- **Cursor de trades compartido** entre símbolos: podía saltear trades. Ahora es por símbolo.
+- **Testnet con datos de mainnet**: en live+testnet el feed usaba streams de mainnet.
+
 ## Próximas ideas (sin correr; cada una suma 1 al contador)
 
 - **1d**: ~2 800 barras por símbolo. Los parámetros están en barras (EMA 100 = 100 días).

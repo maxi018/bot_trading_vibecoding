@@ -49,7 +49,16 @@ class Portfolio:
         pos = self.position(fill.symbol)
         prev_qty = pos.qty
         realized = pos.apply_fill(fill.side, fill.qty, fill.price)
-        self.cash -= fill.side.sign * fill.qty * fill.price + fill.fee
+        if fill.base_fee:
+            # El fee se pagó en el activo base: sale de la posición, no de la caja. Sin esto
+            # la posición local queda más grande que el saldo real: la reconciliación lo ve
+            # como discrepancia y el stop intenta vender BTC que no existe.
+            pos.qty -= fill.base_fee
+            if abs(pos.qty) < 1e-12:
+                pos.qty, pos.avg_entry = 0.0, 0.0
+            self.cash -= fill.side.sign * fill.qty * fill.price
+        else:
+            self.cash -= fill.side.sign * fill.qty * fill.price + fill.fee
         self.fees_paid += fill.fee
         self.marks.setdefault(fill.symbol, fill.price)
         net = realized - fill.fee

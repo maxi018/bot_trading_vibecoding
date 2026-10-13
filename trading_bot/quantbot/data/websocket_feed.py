@@ -23,10 +23,13 @@ import urllib.request
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ..core.clock import Clock, LiveClock
 from ..core.models import Bar, OrderBook, SequenceGapError, Tick
+
+if TYPE_CHECKING:
+    from ..config import ExchangeConfig
 
 log = logging.getLogger(__name__)
 
@@ -179,16 +182,23 @@ def _http_get_json(url: str, timeout: float = 10.0) -> Any:
 
 class BinanceSpotAdapter:
     REST = "https://api.binance.com"
+    WS = "wss://stream.binance.com:9443/stream"
+    # Testnet: libro y precios PROPIOS (no espejan mainnet). Operar en testnet mirando
+    # datos de mainnet hace que el fat-finger vete o que las limit nunca se llenen.
+    TESTNET_REST = "https://testnet.binance.vision"
+    TESTNET_WS = "wss://stream.testnet.binance.vision/stream"
 
     def __init__(
         self,
         symbols: tuple[str, ...],
         timeframe: str,
-        ws_base: str = "wss://stream.binance.com:9443/stream",
+        ws_base: str = WS,
         with_depth: bool = True,
         snapshot_fetcher: Callable[[str], Awaitable[Any]] | None = None,
+        rest_base: str = REST,
     ) -> None:
         self.symbols = symbols
+        self._rest = rest_base
         self.timeframe = timeframe
         self.with_depth = with_depth
         self._ws_base = ws_base
@@ -205,11 +215,19 @@ class BinanceSpotAdapter:
                 streams.append(f"{raw}@depth@100ms")
         return f"{self._ws_base}?streams={'/'.join(streams)}"
 
+    @classmethod
+    def endpoints(cls, mode: str, exchange: ExchangeConfig) -> tuple[str, str]:
+        """(ws, rest) de market data. Solo live+testnet usa los de testnet: paper simula
+        contra el mercado REAL aunque ``testnet`` sea true por defecto."""
+        if mode == "live" and exchange.testnet and exchange.ws_url == cls.WS:
+            return cls.TESTNET_WS, cls.TESTNET_REST
+        return exchange.ws_url, cls.REST
+
     def subscribe_messages(self) -> list[str]:
         return []  # suscripción embebida en la URL (combined streams)
 
     async def _default_fetch(self, raw_symbol: str) -> Any:
-        url = f"{self.REST}/api/v3/depth?symbol={raw_symbol.upper()}&limit=1000"
+        url = f"{self._rest}/api/v3/depth?symbol={raw_symbol.upper()}&limit=1000"
         return await asyncio.to_thread(_http_get_json, url)
 
     async def resync(self) -> list[FeedEvent]:

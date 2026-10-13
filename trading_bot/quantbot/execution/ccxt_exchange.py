@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from ..config import ExchangeConfig, Secrets
@@ -58,6 +59,10 @@ class CcxtExchange:
                 "timeout": int(cfg.request_timeout_s * 1000),
             }
         )
+        if cfg.name == "binance":
+            # El bot opera SPOT (feed, stops sin reduce-only). Cargar también los mercados
+            # de futuros es un request extra que en testnet CCXT ya no soporta.
+            self.ex.options.setdefault("fetchMarkets", {})["types"] = ["spot"]
         if cfg.testnet:
             self.ex.set_sandbox_mode(True)
         self.name = cfg.name
@@ -65,6 +70,8 @@ class CcxtExchange:
         self._fill_handler: FillHandler | None = None
         self._seen_trades: set[str] = set()
         self._symbols: set[str] = set()
+        self._since: dict[str, int] = {}  # cursor de fetch_my_trades POR símbolo
+        self._fee_px: dict[str, tuple[float, float]] = {}  # "BNB/USDT" -> (precio, monotonic)
 
     def set_fill_handler(self, handler: FillHandler) -> None:
         self._fill_handler = handler
@@ -175,22 +182,34 @@ class CcxtExchange:
         return out
 
     async def fetch_positions(self) -> dict[str, float]:
-        """Derivados: fetch_positions. Spot: balance del activo base."""
-        if self.ex.has.get("fetchPositions"):
-            raw = await self._call("fetch_positions", sorted(self._symbols) or None)
-            out: dict[str, float] = {}
-            for p in raw or []:
+        """Spot: saldo del activo base. Derivados: fetch_positions.
+
+        Se decide POR MERCADO, no por ``has["fetchPositions"]``: Binance lo declara True
+        (por sus futuros) y usarlo para spot devolvía "sin posiciones" con BTC en la
+        cuenta. Con eso la reconciliación disparaba el kill y ``flatten_all``, que usa
+        estas posiciones como la verdad, no cerraba nada.
+        """
+        spot: list[str] = []
+        deriv: list[str] = []
+        for s in sorted(self._symbols):
+            (spot if await self._is_spot(s) else deriv).append(s)
+        out: dict[str, float] = {}
+        if deriv:
+            for p in await self._call("fetch_positions", deriv) or []:
                 qty = float(p.get("contracts") or 0) * (1 if p.get("side") == "long" else -1)
                 if qty:
                     out[p["symbol"]] = qty
-            return out
-        bal = await self._call("fetch_balance")
-        out = {}
-        for s in self._symbols:
-            base = s.split("/")[0]
-            qty = float((bal or {}).get("total", {}).get(base) or 0)
-            if qty:
-                out[s] = qty
+        if spot:
+            bal = await self._call("fetch_balance")
+            for s in spot:
+                qty = float((bal or {}).get("total", {}).get(s.split("/")[0]) or 0)
+                # Polvo que quedó de fees: no se puede operar (menor al mínimo del
+                # mercado) y no es una posición; contarlo daría discrepancias eternas.
+                min_qty = (
+                    ((self.ex.markets or {}).get(s, {}).get("limits") or {}).get("amount") or {}
+                ).get("min") or 0
+                if qty > 0 and qty >= float(min_qty):
+                    out[s] = qty
         return out
 
     async def fetch_equity(self) -> float:
@@ -203,13 +222,46 @@ class CcxtExchange:
         await self._call("cancel_all_orders_after", timeout_s * 1000)
         return True
 
+    async def _fee_rate(self, currency: str, quote: str) -> float:
+        """Precio de un activo de fee ajeno al par (p.ej. BNB) en la moneda de cotización."""
+        pair = f"{currency}/{quote}"
+        cached = self._fee_px.get(pair)
+        if cached and time.monotonic() - cached[1] < 300:
+            return cached[0]
+        try:
+            ticker = await self._call("fetch_ticker", pair)
+            px = float((ticker or {}).get("last") or 0)
+        except ExchangeError as exc:
+            log.warning("Sin precio para valuar fee en %s: %s (se registra 0)", currency, exc)
+            px = 0.0
+        self._fee_px[pair] = (px, time.monotonic())
+        return px
+
+    async def _parse_fees(self, t: dict[str, Any], symbol: str) -> tuple[float, float]:
+        """Devuelve (fee en moneda de cotización, parte cobrada en el activo base)."""
+        base, quote = symbol.split("/")[0], symbol.split("/")[1].split(":")[0]
+        fees = t.get("fees") or ([t["fee"]] if t.get("fee") else [])
+        fee_quote = base_fee = 0.0
+        for f in fees:
+            cost = float((f or {}).get("cost") or 0)
+            cur = (f or {}).get("currency")
+            if not cost:
+                continue
+            if cur is None or cur == quote:
+                fee_quote += cost
+            elif cur == base:
+                base_fee += cost
+                fee_quote += cost * float(t["price"])
+            else:
+                fee_quote += cost * await self._fee_rate(cur, quote)
+        return fee_quote, base_fee
+
     async def poll_fills(self, stop: asyncio.Event, interval_s: float = 2.0) -> None:
         """Loop de fills por polling (respaldo si no hay WS privado)."""
-        since: int | None = None
         while not stop.is_set():
             for s in sorted(self._symbols):
                 try:
-                    trades = await self._call("fetch_my_trades", s, since) or []
+                    trades = await self._call("fetch_my_trades", s, self._since.get(s)) or []
                 except ExchangeError as exc:
                     log.warning("poll_fills %s: %s", s, exc)
                     continue
@@ -218,8 +270,10 @@ class CcxtExchange:
                     if tid in self._seen_trades:
                         continue
                     self._seen_trades.add(tid)
-                    since = max(since or 0, int(t["timestamp"]))
-                    fee = float((t.get("fee") or {}).get("cost") or 0)
+                    # Cursor por símbolo: uno compartido salteaba trades de un símbolo
+                    # más viejos que el último trade visto en OTRO símbolo.
+                    self._since[s] = max(self._since.get(s, 0), int(t["timestamp"]))
+                    fee, base_fee = await self._parse_fees(t, s)
                     fill = Fill(
                         client_order_id=str(t.get("clientOrderId") or t.get("order") or ""),
                         symbol=s,
@@ -230,6 +284,7 @@ class CcxtExchange:
                         ts=int(t["timestamp"]),
                         is_maker=t.get("takerOrMaker") == "maker",
                         trade_id=tid,
+                        base_fee=base_fee,
                     )
                     if self._fill_handler:
                         await self._fill_handler(fill)

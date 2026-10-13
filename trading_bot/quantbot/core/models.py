@@ -335,6 +335,9 @@ class Fill:
     is_maker: bool = False
     trade_id: str = ""
     decision_price: float = 0.0
+    # Spot: parte del fee cobrada en el ACTIVO BASE (p.ej. comprar BTC pagando fee en BTC).
+    # La posición recibe qty - base_fee; ``fee`` sigue siendo su valor en moneda de cotización.
+    base_fee: float = 0.0
 
     @property
     def slippage_bps(self) -> float:
