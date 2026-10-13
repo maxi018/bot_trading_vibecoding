@@ -1,0 +1,30 @@
+# quantbot con un solo comando:
+#   ./run.sh demo --docker          (genera trading_bot/.env con un token si no existe)
+# o a mano:
+#   QB_MODE=paper docker compose up --build
+#
+# Modos: demo (sintético, sin red) | paper (datos reales, sin dinero) | live (dinero real:
+# requiere config/live.toml y QB_LIVE_CONFIRM=I_UNDERSTAND_THE_RISK en trading_bot/.env).
+services:
+  quantbot:
+    build: .
+    image: quantbot:local
+    command: ["${QB_MODE:-demo}", "--config", "config/${QB_MODE:-demo}.toml"]
+    env_file:
+      - path: ./trading_bot/.env   # secretos: token del dashboard, API keys, Telegram...
+        required: true
+    ports:
+      - "127.0.0.1:${QB_HOST_PORT:-8765}:8765"   # SOLO localhost del host
+    volumes:
+      - quantbot-state:/app/trading_bot/state            # kill-switch, journal, auditoría
+      - ./trading_bot/config:/app/trading_bot/config:ro  # live.toml lo creás vos
+      - ./trading_bot/data:/app/trading_bot/data:ro      # datasets para backtests
+    restart: unless-stopped
+    stop_grace_period: 60s       # tiempo para el safe shutdown
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+volumes:
+  quantbot-state:

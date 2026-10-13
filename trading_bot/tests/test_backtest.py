@@ -173,3 +173,17 @@ def test_config_safety_ceilings(tmp_path):
     p = tmp_path / "c.toml"
     p.write_text('[strategy]\nsymbols = ["ETH/USDT"]\n')
     assert load_config(p).strategy.symbols == ("ETH/USDT",)
+
+
+def test_env_overrides_for_docker():
+    from quantbot.config import apply_env_overrides
+
+    cfg = load_config()
+    assert cfg.api.host == "127.0.0.1"  # default seguro
+    out = apply_env_overrides(cfg, {"QB_API_HOST": "0.0.0.0", "QB_API_PORT": "9000"})
+    assert (out.api.host, out.api.port) == ("0.0.0.0", 9000)
+    assert apply_env_overrides(cfg, {}).api == cfg.api
+    with pytest.raises(ConfigError):
+        apply_env_overrides(cfg, {"QB_API_PORT": "abc"})
+    with pytest.raises(ConfigError):
+        apply_env_overrides(cfg, {"QB_API_PORT": "70000"})

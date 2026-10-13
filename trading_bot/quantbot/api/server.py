@@ -17,6 +17,7 @@ import hmac
 import ipaddress
 import json
 import logging
+import os
 import time
 from collections import defaultdict, deque
 from collections.abc import Iterator
@@ -40,7 +41,12 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 MIN_TOKEN_LEN = 16
-DASHBOARD_DIST = Path(__file__).resolve().parents[3] / "dashboard" / "dist"
+# Build del dashboard: junto al repo (instalación editable) o donde diga QB_DASHBOARD_DIST
+# (imagen Docker, donde el paquete vive en site-packages).
+DASHBOARD_DIST = Path(
+    os.environ.get("QB_DASHBOARD_DIST")
+    or Path(__file__).resolve().parents[3] / "dashboard" / "dist"
+)
 
 
 # ------------------------------------------------------------------- auth

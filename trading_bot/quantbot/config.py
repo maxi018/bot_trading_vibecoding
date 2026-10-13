@@ -9,6 +9,7 @@ Reglas:
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import tomllib
 from dataclasses import dataclass, field, fields, is_dataclass
@@ -231,6 +232,26 @@ def _build(cls: type[T], data: dict[str, Any]) -> T:
         else:
             kwargs[name] = value
     return cls(**kwargs)
+
+
+def apply_env_overrides(cfg: AppConfig, env: dict[str, str] | None = None) -> AppConfig:
+    """Overrides de despliegue por entorno (p.ej. Docker): QB_API_HOST, QB_API_PORT.
+
+    Dentro de un contenedor la API escucha en 0.0.0.0 y el compose la publica SOLO en
+    127.0.0.1 del host. Fuera de Docker, el default sigue siendo 127.0.0.1.
+    """
+    env = dict(os.environ) if env is None else env
+    api = cfg.api
+    if env.get("QB_API_HOST"):
+        api = dataclasses.replace(api, host=env["QB_API_HOST"])
+    if env.get("QB_API_PORT"):
+        try:
+            api = dataclasses.replace(api, port=int(env["QB_API_PORT"]))
+        except ValueError as exc:
+            raise ConfigError("QB_API_PORT inválido") from exc
+    out = dataclasses.replace(cfg, api=api)
+    validate(out)
+    return out
 
 
 def load_config(path: str | Path | None = None, **overrides: Any) -> AppConfig:

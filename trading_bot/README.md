@@ -8,8 +8,18 @@ Arquitectura, Riesgo y Validación"*. Python 3.11+, `asyncio`, tipado estricto
 (`mypy --strict` limpio), **núcleo sin dependencias externas** (solo stdlib).
 
 ```
-82 tests · ruff ✔ · mypy --strict ✔ · backtest == paper == live (mismo pipeline)
+118 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
+backtest == paper == live (mismo pipeline)
 ```
+
+### Inicio rápido (bot + API + dashboard, un solo comando)
+
+```bash
+./run.sh            # demo: datos sintéticos acelerados, sin red ni API keys
+# → abrir http://127.0.0.1:8765 y pegar el token que imprime (queda en trading_bot/.env)
+```
+
+Detalle de modos, Docker y seguridad en [§8 Dashboard](#8-dashboard-interfaz-visual).
 
 ---
 
@@ -265,6 +275,102 @@ Banderas rojas que el reporte marca solo: Sharpe > 3, < 100 trades, profit facto
    ```
 10. **Deploys controlados** (lección Knight Capital): `systemctl stop` → actualizar → `pytest`
     → `systemctl start`. Nunca dos versiones corriendo contra la misma cuenta.
+
+---
+
+## 8. Dashboard (interfaz visual)
+
+React + Vite + TypeScript en [`/dashboard`](../dashboard), servido por una API FastAPI
+que corre **dentro del mismo proceso** que el bot. La API solo **lee estado** y **encola
+comandos** al mismo consumidor single-writer que procesa el mercado: nunca reescribe
+lógica del bot ni habla con el exchange.
+
+| Pantalla | Qué muestra |
+|---|---|
+| Overview | equity, PnL del día/total, estado del bot, riesgo vs. límites (drawdown, apalancamiento) |
+| Gráfico | velas (TradingView lightweight-charts) con entradas, salidas y stops |
+| Posiciones / órdenes | posiciones con stop nativo, distancia y riesgo al stop, alerta si falta stop; órdenes vivas |
+| Historial | trades cerrados con filtros, fees, slippage real vs. esperado y motivo de salida; exportable a CSV |
+| Métricas | equity live vs. backtest de referencia, drawdown, criterio de apagado, banderas rojas |
+| Risk engine | circuit breakers en vivo, vetos, parámetros editables, auditoría |
+| Backtests | lanzar backtest + Monte Carlo + walk-forward sin bloquear al bot (proceso aparte) |
+
+### Cómo levantarlo
+
+| Comando | Qué hace |
+|---|---|
+| `./run.sh` | **demo**: mercado sintético acelerado, ejecución simulada. Ideal para mirar la UI |
+| `./run.sh paper` | datos reales de Binance, ejecución simulada (`config/paper.toml`) |
+| `./run.sh live` | **dinero real**. Exige `config/live.toml`, `QB_API_KEY` y `QB_LIVE_CONFIRM=I_UNDERSTAND_THE_RISK` en `.env` |
+| `./run.sh demo --dev` | además levanta Vite con hot reload en `http://127.0.0.1:5173` |
+| `./run.sh paper --docker` | lo mismo vía `docker compose up --build` |
+
+`run.sh` hace todo lo aburrido: crea `trading_bot/.env` (permisos `600`) y genera el token
+del dashboard si falta, arma el venv, instala dependencias, compila el dashboard si cambió
+y arranca. `Ctrl+C` = **safe shutdown** (cancela entradas, deja vivos los stops nativos).
+Requisitos: Python ≥ 3.11 y Node ≥ 18 (o solo Docker con `--docker`).
+
+Con Docker directamente:
+
+```bash
+QB_MODE=paper docker compose up --build -d    # demo | paper | live
+docker compose logs -f
+docker compose down                           # SIGTERM → safe shutdown (60 s de gracia)
+```
+
+El estado (kill-switch, journal SQLite) vive en el volumen `quantbot-state`: un kill
+**sobrevive** a reinicios del contenedor, igual que fuera de Docker.
+
+### Controles
+
+- **KILL** (siempre visible, con confirmación): llama al kill del risk engine → cancela
+  órdenes y cierra posiciones a mercado protegido. El bot queda `KILLED`.
+- **PAUSE / RESUME**: pausa = no abre posiciones nuevas; los stops nativos siguen activos.
+- **Reactivar tras un kill**: hay que escribir `REACTIVAR` + nombre de operador. Queda
+  auditado y el bot vuelve **PAUSADO**: reanudar es un segundo paso consciente.
+- **Parámetros de riesgo**: en caliente solo se pueden hacer **más conservadores**. Para
+  relajarlos el bot tiene que estar pausado y hay que confirmar; los techos duros de
+  `config.py` no se pueden superar nunca.
+- La UI **no manda órdenes**: cualquier acción pasa por el risk engine, igual que la estrategia.
+
+Si se cortan los datos, el WebSocket reconecta solo (backoff con jitter) y la UI muestra
+un banner **DATOS DESACTUALIZADOS** y atenúa los números: nunca muestra valores viejos
+como si fueran actuales. El modo (DEMO / PAPER / LIVE) se ve siempre en la barra superior.
+
+### Seguridad
+
+- La API escucha **solo en `127.0.0.1`** por defecto (`[api] host` en el TOML o
+  `QB_API_HOST`). En Docker escucha en `0.0.0.0` *dentro* del contenedor, pero el compose
+  publica el puerto **solo en `127.0.0.1` del host**. Para acceso remoto: túnel SSH
+  (`ssh -L 8765:127.0.0.1:8765 vps`) o un reverse proxy con TLS; nunca exponerla directo.
+- Autenticación por token: `QB_DASHBOARD_TOKEN` (≥ 16 caracteres). Sin token, la API no
+  arranca. Comparación en tiempo constante; el WebSocket se autentica en el primer mensaje
+  (el token no viaja en la URL ni queda en logs de acceso).
+- Las API keys del exchange **nunca** salen del proceso: no hay endpoint que las devuelva
+  y `Secrets.__repr__` las enmascara en logs.
+- Contenedor endurecido: usuario sin privilegios, filesystem read-only, `cap_drop: ALL`,
+  `no-new-privileges`, config y datos montados read-only.
+
+### Variables de entorno
+
+| Variable | Para qué |
+|---|---|
+| `QB_DASHBOARD_TOKEN` | token de acceso al dashboard (lo genera `run.sh`) |
+| `QB_API_HOST` / `QB_API_PORT` | override de `[api] host/port` (Docker) |
+| `QB_HOST_PORT` | puerto del host que publica el compose (default 8765) |
+| `QB_DASHBOARD_DIST` | dónde está el build del dashboard (default `../dashboard/dist`) |
+| `QB_API_KEY` / `QB_API_SECRET` | exchange (solo paper/live; sin permiso de retiro) |
+| `QB_LIVE_CONFIRM` | `I_UNDERSTAND_THE_RISK` para habilitar live |
+
+Los backtests lanzados desde la UI solo pueden leer archivos de `[api] data_dir`
+(`./data` por defecto; en Docker se monta read-only).
+
+### Tests
+
+```bash
+cd trading_bot && pip install -e ".[dashboard,dev]" && pytest   # incl. endpoints de control
+cd dashboard && npm ci && npm test && npx tsc --noEmit
+```
 
 ---
 

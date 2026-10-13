@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .config import AppConfig, Secrets, load_config
+from .config import AppConfig, Secrets, apply_env_overrides, load_config
 from .core.clock import timeframe_to_ms
 from .core.logging_setup import setup_logging
 from .core.models import Bar
@@ -135,7 +135,7 @@ def cmd_validate_data(args: argparse.Namespace) -> int:
 def cmd_run(args: argparse.Namespace, mode: str) -> int:
     from .app import TradingApp
 
-    cfg = load_config(args.config, mode=mode)
+    cfg = apply_env_overrides(load_config(args.config, mode=mode))
     setup_logging(cfg.log_level)
     app = TradingApp(cfg, Secrets.from_env())
     return asyncio.run(app.run())
