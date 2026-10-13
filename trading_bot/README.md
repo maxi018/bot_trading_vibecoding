@@ -8,7 +8,7 @@ Arquitectura, Riesgo y Validación"*. Python 3.11+, `asyncio`, tipado estricto
 (`mypy --strict` limpio), **núcleo sin dependencias externas** (solo stdlib).
 
 ```
-173 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
+174 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
 backtest == paper == live (mismo pipeline)
 ```
 

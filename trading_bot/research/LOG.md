@@ -273,6 +273,11 @@ Con velas diarias (#7–#9):
   reporte no decía nada (con 1d pasó en 24–27 de 27 ventanas del trend following). Ahora
   esas ventanas usan los parámetros del TOML, quedan marcadas y la salida avisa cuántas
   fueron. Lo mismo en el dashboard, donde además ese `-inf` rompía la respuesta JSON.
+- **Alarma falsa en cada salida**: en backtest la salida se ejecuta en la apertura
+  siguiente; mientras tanto el bot re-coloca el stop (correcto: nunca desnuda) pero lo
+  logueaba como WARNING "una salida no se llenó". Eran miles de líneas por corrida (logs
+  de 1h de 60 000 líneas, resúmenes de 7 MB). Ahora solo avisa si la salida terminó sin
+  llenarse. No cambia ningún resultado.
 
 ## Próximas ideas (sin correr; cada una suma 1 al contador)
 

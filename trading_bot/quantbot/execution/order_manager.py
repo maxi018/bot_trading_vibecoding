@@ -250,8 +250,13 @@ class OrderManager:
                     # Posición sin stop conocido (p.ej. adoptada): avisar fuerte.
                     self._alert(Severity.WARNING, f"Posición en {symbol} SIN stop protectivo")
                     return
-                # Una salida no se llenó: NUNCA dejar la posición desnuda.
-                log.warning("Re-colocando último stop conocido en %s @ %s", symbol, stop)
+                # NUNCA dejar la posición desnuda. Si la salida sigue pendiente (backtest:
+                # se ejecuta en la apertura siguiente) es lo esperado; si ya terminó sin
+                # llenarse, merece aviso.
+                if self._pending_exits(symbol):
+                    log.debug("Stop provisorio en %s @ %s: salida pendiente", symbol, stop)
+                else:
+                    log.warning("Re-colocando último stop conocido en %s @ %s", symbol, stop)
             side = Side.SELL if pos > 0 else Side.BUY
             if (
                 cur is not None
@@ -293,6 +298,15 @@ class OrderManager:
     def _pending_entries(self, symbol: str) -> bool:
         return any(
             o.symbol == symbol and not o.is_terminal and not o.reduce_only
+            for o in self.orders.values()
+        )
+
+    def _pending_exits(self, symbol: str) -> bool:
+        return any(
+            o.symbol == symbol
+            and not o.is_terminal
+            and o.reduce_only
+            and o.type is not OrderType.STOP_MARKET
             for o in self.orders.values()
         )
 
