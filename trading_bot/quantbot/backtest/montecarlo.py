@@ -41,6 +41,15 @@ class MonteCarloResult:
     dd_samples: tuple[float, ...] = ()  # distribución completa (para el histograma)
 
     def pretty(self) -> str:
+        shutdown = 1.5 * self.dd_p95
+        if shutdown < self.kill_threshold:
+            criterion = f"DD live > {shutdown:.2%} (1.5x p95) => estrategia rota"
+        else:
+            # Un criterio por encima del kill nunca llega a evaluarse: el kill salta antes.
+            criterion = (
+                f"1.5x p95 = {shutdown:.2%} supera el kill ({self.kill_threshold:.0%}): "
+                f"el kill-switch es el límite efectivo y el sizing es demasiado agresivo"
+            )
         return (
             f"  Simulaciones           {self.n_sims}\n"
             f"  Max DD p50 / p95 / p99 "
@@ -48,8 +57,7 @@ class MonteCarloResult:
             f"  Retorno p5 / p50 / p95 "
             f"{self.ret_p5:.2%} / {self.ret_p50:.2%} / {self.ret_p95:.2%}\n"
             f"  P(DD > kill {self.kill_threshold:.0%})       {self.prob_dd_over_kill:.2%}\n"
-            f"  Criterio de apagado sugerido: DD live > {1.5 * self.dd_p95:.2%} "
-            f"(1.5x p95) => estrategia rota"
+            f"  Criterio de apagado: {criterion}"
         )
 
 

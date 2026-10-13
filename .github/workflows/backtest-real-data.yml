@@ -1,0 +1,160 @@
+# Backtest con datos REALES de Binance (data.binance.vision, SHA-256 verificado).
+#
+# - Manual: Actions → "Backtest con datos reales" → Run workflow (símbolos, rango, timeframe).
+# - Automático: cuando cambia la estrategia, el risk engine o el backtester (para que nadie
+#   "mejore" la estrategia sin ver qué le pasa con datos de verdad), y una vez por mes.
+#
+# Resultados: resumen en la página del run + artifacts (datos CSV y JSON de resultados).
+name: Backtest con datos reales
+
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Símbolos (separados por coma)"
+        default: "BTC/USDT,ETH/USDT"
+      timeframe:
+        description: "Timeframe (debe coincidir con [strategy] timeframe del config)"
+        default: "1h"
+      start:
+        description: "Desde (AAAA-MM)"
+        default: "2019-01"
+      end:
+        description: "Hasta (AAAA-MM; vacío = último mes completo)"
+        default: ""
+  push:
+    paths:
+      - ".github/workflows/backtest-real-data.yml"
+      - "trading_bot/quantbot/data/binance_vision.py"
+      - "trading_bot/quantbot/strategy/**"
+      - "trading_bot/quantbot/risk/**"
+      - "trading_bot/quantbot/backtest/**"
+      - "trading_bot/config/default.toml"
+  schedule:
+    - cron: "17 6 2 * *" # día 2 de cada mes: suma el mes que cerró
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtest-real-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SYMBOLS: ${{ inputs.symbols || 'BTC/USDT,ETH/USDT' }}
+  TIMEFRAME: ${{ inputs.timeframe || '1h' }}
+  START: ${{ inputs.start || '2019-01' }}
+  END: ${{ inputs.end }}
+  CONFIG: config/default.toml
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  data:
+    name: Descargar y validar datos
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: trading_bot
+    outputs:
+      symbols: ${{ steps.matrix.outputs.symbols }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install -e .   # el núcleo es solo stdlib
+      - uses: actions/cache@v4
+        with:
+          path: trading_bot/data/.cache
+          key: binance-v1-${{ env.TIMEFRAME }}-${{ github.run_id }}
+          restore-keys: binance-v1-${{ env.TIMEFRAME }}-
+      - name: Descargar (checksum SHA-256 por archivo)
+        run: |
+          python -m quantbot download --symbol "$SYMBOLS" --timeframe "$TIMEFRAME" \
+            --start "$START" ${END:+--end "$END"} --out-dir data | tee download.txt
+      - id: matrix
+        run: |
+          python -c "import json,os; print('symbols=' + json.dumps([s.strip() for s in os.environ['SYMBOLS'].split(',') if s.strip()]))" >> "$GITHUB_OUTPUT"
+      - name: Resumen
+        run: |
+          { echo "### Datos ($TIMEFRAME, desde $START)"; echo '```'; cat download.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: market-data
+          path: trading_bot/data/*.csv
+          retention-days: 30
+
+  backtest:
+    name: Backtest + costos x2 + Monte Carlo
+    needs: data
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: trading_bot
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install -e .
+      - uses: actions/download-artifact@v4
+        with:
+          name: market-data
+          path: trading_bot/data
+      - name: Backtest (portafolio completo)
+        run: |
+          DATA=$(python -c "import os; print(','.join('data/%s_%s.csv' % (s.strip().replace('/', '').upper(), os.environ['TIMEFRAME']) for s in os.environ['SYMBOLS'].split(',') if s.strip()))")
+          mkdir -p results
+          # Parámetros del TOML fijados ANTES de mirar estos datos: 1 sola prueba (DSR honesto).
+          python -m quantbot backtest --config "$CONFIG" --data "$DATA" --symbol "$SYMBOLS" \
+            --trials 1 --montecarlo --out results/backtest.json | tee results/backtest.txt
+          python -m quantbot backtest --config "$CONFIG" --data "$DATA" --symbol "$SYMBOLS" \
+            --trials 1 --stress 2.0 | tee results/backtest_stress2.txt
+      - name: Resumen
+        run: |
+          {
+            echo "### Backtest: $SYMBOLS ($TIMEFRAME)"
+            echo '```'; cat results/backtest.txt; echo '```'
+            echo "### Con costos x2 (si acá muere, el edge eran los costos)"
+            echo '```'; cat results/backtest_stress2.txt; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backtest-results
+          path: trading_bot/results/
+          retention-days: 90
+
+  walkforward:
+    name: Walk-forward ${{ matrix.symbol }}
+    needs: data
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        symbol: ${{ fromJSON(needs.data.outputs.symbols) }}
+    defaults:
+      run:
+        working-directory: trading_bot
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install -e .
+      - uses: actions/download-artifact@v4
+        with:
+          name: market-data
+          path: trading_bot/data
+      - name: Walk-forward (train 1 año, test 3 meses, deslizante)
+        env:
+          SYMBOL: ${{ matrix.symbol }}
+        run: |
+          RAW=$(echo "$SYMBOL" | tr -d '/' | tr '[:lower:]' '[:upper:]')
+          python -m quantbot walkforward --config "$CONFIG" \
+            --data "data/${RAW}_${TIMEFRAME}.csv" --symbol "$SYMBOL" \
+            --grid "fast_ema=10,20,30;slow_ema=100,200" \
+            --train 8760 --test 2190 --warmup 600 | tee wf.txt
+          { echo "### Walk-forward $SYMBOL"; echo '```'; cat wf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

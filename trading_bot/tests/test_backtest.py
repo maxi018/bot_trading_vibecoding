@@ -187,3 +187,24 @@ def test_env_overrides_for_docker():
         apply_env_overrides(cfg, {"QB_API_PORT": "abc"})
     with pytest.raises(ConfigError):
         apply_env_overrides(cfg, {"QB_API_PORT": "70000"})
+
+
+def test_montecarlo_shutdown_criterion_never_above_kill() -> None:
+    from quantbot.backtest.montecarlo import MonteCarloResult
+
+    def mc(dd_p95: float) -> str:
+        return MonteCarloResult(
+            n_sims=10,
+            dd_p50=dd_p95 / 2,
+            dd_p95=dd_p95,
+            dd_p99=dd_p95,
+            ret_p5=0.0,
+            ret_p50=0.0,
+            ret_p95=0.0,
+            prob_dd_over_kill=0.0,
+            kill_threshold=0.15,
+        ).pretty()
+
+    assert "DD live > 12.00%" in mc(0.08)
+    aggressive = mc(0.30)
+    assert "límite efectivo" in aggressive and "DD live >" not in aggressive

@@ -5,6 +5,7 @@ python -m quantbot backtest     --synthetic 8000 --montecarlo --stress 2.0
 python -m quantbot walkforward  --data ... --grid "fast_ema=10,20,30;slow_ema=100,200"
 python -m quantbot sensitivity  --data ... --grid "atr_stop_mult=2,2.5,3"
 python -m quantbot validate-data --data ... --symbol BTC/USDT
+python -m quantbot download     --symbol BTC/USDT,ETH/USDT --start 2019-01  (data.binance.vision)
 python -m quantbot paper        --config config/paper.toml
 python -m quantbot live         --config config/live.toml      (requiere QB_LIVE_CONFIRM)
 python -m quantbot reset-kill-switch --operator maxi --confirm
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -35,6 +37,19 @@ def _parse_grid(spec: str) -> dict[str, list[Any]]:
             parsed.append(int(v) if v.lstrip("-").isdigit() else float(v))
         grid[key.strip()] = parsed
     return grid
+
+
+def _backtest_config(args: argparse.Namespace) -> AppConfig:
+    """Config de backtest; ``--symbol`` también define qué opera la estrategia.
+
+    Sin esto, ``--symbol ETH/USDT`` cargaba datos de ETH pero la estrategia seguía
+    mirando solo los símbolos del TOML: un backtest vacío que parece "sin señales".
+    """
+    cfg = load_config(args.config, mode="backtest")
+    if args.symbol:
+        symbols = tuple(s.strip() for s in args.symbol.split(",") if s.strip())
+        cfg = dataclasses.replace(cfg, strategy=dataclasses.replace(cfg.strategy, symbols=symbols))
+    return cfg
 
 
 def _load_bars(args: argparse.Namespace, cfg: AppConfig) -> list[Bar]:
@@ -69,7 +84,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     from .backtest.engine import run_backtest
     from .backtest.montecarlo import monte_carlo
 
-    cfg = load_config(args.config, mode="backtest")
+    cfg = _backtest_config(args)
     bars = _load_bars(args, cfg)
     res = run_backtest(cfg, bars, cost_stress=args.stress, n_trials=args.trials)
     print(f"\n=== BACKTEST ({len(bars)} barras, stress costos x{args.stress}) ===")
@@ -99,7 +114,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 def cmd_walkforward(args: argparse.Namespace) -> int:
     from .backtest.walk_forward import walk_forward
 
-    cfg = load_config(args.config, mode="backtest")
+    cfg = _backtest_config(args)
     bars = _load_bars(args, cfg)
     wf = walk_forward(cfg, bars, _parse_grid(args.grid), args.train, args.test, args.warmup)
     print(f"\n=== WALK-FORWARD ({len(wf.windows)} ventanas, {wf.n_trials} pruebas) ===")
@@ -117,7 +132,7 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
 def cmd_sensitivity(args: argparse.Namespace) -> int:
     from .backtest.walk_forward import parameter_sensitivity
 
-    cfg = load_config(args.config, mode="backtest")
+    cfg = _backtest_config(args)
     bars = _load_bars(args, cfg)
     rows = parameter_sensitivity(cfg, bars, _parse_grid(args.grid))
     print("\n=== SENSIBILIDAD (buscar meseta, no pico) ===")
@@ -127,9 +142,28 @@ def cmd_sensitivity(args: argparse.Namespace) -> int:
 
 
 def cmd_validate_data(args: argparse.Namespace) -> int:
-    cfg = load_config(args.config, mode="backtest")
+    cfg = _backtest_config(args)
     _load_bars(args, cfg)
     return 0
+
+
+def cmd_download(args: argparse.Namespace) -> int:
+    from .data.binance_vision import DownloadError, download_klines, parse_month
+
+    tf_ms = timeframe_to_ms(args.timeframe)
+    start = parse_month(args.start)
+    end = parse_month(args.end) if args.end else (9999, 12)
+    ok = True
+    for sym in filter(None, (s.strip() for s in args.symbol.split(","))):
+        try:
+            res = download_klines(sym, args.timeframe, tf_ms, start, end, args.out_dir)
+        except DownloadError as exc:
+            print(f"[datos] ✖ {sym}: {exc}")
+            ok = False
+            continue
+        print(f"[datos] {res.summary()}")
+        ok = ok and res.report.ok
+    return 0 if ok else 1
 
 
 def cmd_run(args: argparse.Namespace, mode: str) -> int:
@@ -188,6 +222,13 @@ def main(argv: list[str] | None = None) -> int:
     vd = sub.add_parser("validate-data")
     data_args(vd)
 
+    dl = sub.add_parser("download", help="Velas reales verificadas de data.binance.vision")
+    dl.add_argument("--symbol", required=True, help="BTC/USDT,ETH/USDT")
+    dl.add_argument("--timeframe", default="1h")
+    dl.add_argument("--start", required=True, help="AAAA-MM")
+    dl.add_argument("--end", help="AAAA-MM (default: último mes completo)")
+    dl.add_argument("--out-dir", default="./data")
+
     for mode in ("paper", "live", "demo"):
         sp = sub.add_parser(mode)
         sp.add_argument("--config", default=None)
@@ -209,6 +250,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_sensitivity(args)
         case "validate-data":
             return cmd_validate_data(args)
+        case "download":
+            return cmd_download(args)
         case "paper" | "live" | "demo":
             return cmd_run(args, args.cmd)
         case "reset-kill-switch":

@@ -8,7 +8,7 @@ Arquitectura, Riesgo y Validación"*. Python 3.11+, `asyncio`, tipado estricto
 (`mypy --strict` limpio), **núcleo sin dependencias externas** (solo stdlib).
 
 ```
-118 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
+128 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
 backtest == paper == live (mismo pipeline)
 ```
 
@@ -210,16 +210,19 @@ pip install -e ".[dev,data,live]"
 pytest                                   # 1) todo verde antes de cualquier cosa
 ```
 
-1. **Datos**: descargar y validar (huecos, duplicados, saltos > 50%).
+1. **Datos reales**: archivo público de Binance ([data.binance.vision](https://data.binance.vision)),
+   **SHA-256 verificado por archivo**, solo stdlib, con caché en `data/.cache/`. Normaliza los
+   timestamps en µs de 2025+, informa los meses sin archivo y valida huecos/duplicados/saltos.
    ```bash
-   python scripts/download_data.py --symbol BTC/USDT --timeframe 1h --since 2019-01-01 --out data/BTCUSDT_1h.parquet
-   python scripts/download_data.py --symbol ETH/USDT --timeframe 1h --since 2019-01-01 --out data/ETHUSDT_1h.parquet
-   python -m quantbot validate-data --data data/BTCUSDT_1h.parquet --symbol BTC/USDT
+   python -m quantbot download --symbol BTC/USDT,ETH/USDT --timeframe 1h --start 2019-01
+   # → data/BTCUSDT_1h.csv, data/ETHUSDT_1h.csv (hasta el último mes completo)
+   python -m quantbot validate-data --data data/BTCUSDT_1h.csv --symbol BTC/USDT
    ```
+   ¿Otro exchange? `scripts/download_data.py --exchange kraken ...` (vía CCXT, sin checksum).
    Para universos multi-activo usar datasets **point-in-time con deslistados** (survivorship bias).
 2. **Backtest base** con costos realistas (fill en la apertura siguiente, fees, spread, slippage):
    ```bash
-   python -m quantbot backtest --data data/BTCUSDT_1h.parquet,data/ETHUSDT_1h.parquet \
+   python -m quantbot backtest --data data/BTCUSDT_1h.csv,data/ETHUSDT_1h.csv \
        --symbol BTC/USDT,ETH/USDT --out results/base.json
    ```
 3. **Stress de costos**: `--stress 1.5` y `--stress 2`. Si el edge desaparece, no había edge.
@@ -237,9 +240,23 @@ pytest                                   # 1) todo verde antes de cualquier cosa
    python -m quantbot backtest --data ... --montecarlo --trials <TOTAL de configuraciones probadas>
    ```
 7. **Escenarios de stress**: correr sobre marzo 2020, mayo 2022 (LUNA) y noviembre 2022 (FTX).
-8. **Definir ANTES de prender** el criterio de apagado (la CLI sugiere `1.5 × DD p95`).
+8. **Definir ANTES de prender** el criterio de apagado (la CLI sugiere `1.5 × DD p95`;
+   si eso supera el kill-switch, avisa que el sizing es demasiado agresivo).
 
 Banderas rojas que el reporte marca solo: Sharpe > 3, < 100 trades, profit factor > 3.
+`--symbol` define tanto qué datos se cargan como qué opera la estrategia.
+
+### En GitHub Actions (sin instalar nada)
+
+| Workflow | Cuándo corre | Qué hace |
+|---|---|---|
+| `CI` | cada push/PR que toca el bot, el dashboard o el empaquetado | ruff, `mypy --strict` y pytest en Python 3.11 y 3.13; typecheck, tests y build del dashboard; shellcheck de `run.sh`; build de la imagen Docker + smoke test (health, 401 sin token, 200 con token) |
+| `Backtest con datos reales` | a mano (*Actions → Run workflow*: símbolos, rango, timeframe), cuando cambia estrategia/riesgo/backtester, y el día 2 de cada mes | baja datos verificados, backtest del portafolio + Monte Carlo + costos ×2, y walk-forward por símbolo en paralelo |
+
+Los resultados quedan en el resumen del run y como artifacts (`market-data` con los CSV,
+`backtest-results` con el JSON). Los parámetros del TOML se fijan **antes** de mirar los
+datos: por eso el backtest corre con `--trials 1`; si empezás a tunear mirando estos
+resultados, subí `--trials` (Deflated Sharpe) o el número deja de significar algo.
 
 ---
 
