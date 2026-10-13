@@ -7,6 +7,7 @@ import { ToastProvider } from "./components/Toasts";
 import { HistoryPage } from "./pages/History";
 import { Login } from "./pages/Login";
 import { MetricsPage } from "./pages/Metrics";
+import { BacktestsPage } from "./pages/Backtests";
 import { ChartPage } from "./pages/Chart";
 import { Overview } from "./pages/Overview";
 import { PositionsPage } from "./pages/Positions";
@@ -106,6 +107,8 @@ function Terminal({ token }: { token: string }) {
       <main className={live.stale ? "is-stale" : ""}>
         {page === "overview" ? (
           <Overview live={live} />
+        ) : page === "backtests" ? (
+          <BacktestsPage theme={theme} />
         ) : page === "risk" ? (
           <RiskPage live={live} conn={conn} />
         ) : page === "metrics" ? (

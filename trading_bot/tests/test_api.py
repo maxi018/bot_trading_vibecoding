@@ -397,3 +397,89 @@ async def test_equity_curve_skips_warmup(app):
         app._after_bar(bar)
     rows = app.journal.query("SELECT ts FROM equity ORDER BY ts")
     assert [r["ts"] for r in rows] == [3 * 3_600_000, 4 * 3_600_000, 5 * 3_600_000]
+
+
+# ------------------------------------------------------------ backtests desde la UI
+@pytest.fixture
+def data_app(tmp_path):
+    from quantbot.data.historical import write_csv
+    from quantbot.data.synthetic import generate_bars
+
+    data = tmp_path / "data"
+    (data / "sub").mkdir(parents=True)
+    write_csv(data / "BTCUSDT_1h.csv", generate_bars("BTC/USDT", 1500, seed=3))
+    (data / "notas.txt").write_text("no es un dataset")
+    (data / "sub" / "ETH.parquet").write_bytes(b"x")
+    cfg = load_config(
+        mode="paper",
+        state_dir=str(tmp_path / "state"),
+        api={"enabled": False, "data_dir": str(data)},
+    )
+    return TradingApp(cfg, Secrets(dashboard_token=TOKEN), feed=StubFeed())  # type: ignore[arg-type]
+
+
+@pytest.fixture
+async def data_client(data_app):
+    transport = httpx.ASGITransport(app=create_api(data_app, TOKEN))
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
+
+
+async def wait_job(c, job_id, limit_s=90):
+    deadline = time.monotonic() + limit_s
+    while time.monotonic() < deadline:
+        job = (await c.get(f"/api/backtests/{job_id}", headers=AUTH)).json()
+        if job["status"] in ("done", "error"):
+            return job
+        await asyncio.sleep(0.2)
+    raise AssertionError("timeout")
+
+
+async def test_datasets_listing_only_inside_data_dir(data_client):
+    r = (await data_client.get("/api/backtests/datasets", headers=AUTH)).json()
+    assert [d["path"] for d in r["datasets"]] == ["BTCUSDT_1h.csv", "sub/ETH.parquet"]
+    assert "BTC/USDT" in r["symbols"]
+
+
+async def test_walkforward_budget_is_enforced(client):
+    big = {
+        "grid": {"fast_ema": [5, 10, 15, 20, 25], "slow_ema": [50, 60, 70, 80, 90, 100]},
+        "train": 1000,
+        "test": 300,
+    }
+    r = await client.post(
+        "/api/backtests", headers=AUTH, json={"synthetic_bars": 6000, "walkforward": big}
+    )
+    assert r.status_code == 422 and "demasiado grande" in r.json()["detail"]
+    r = await client.post(
+        "/api/backtests",
+        headers=AUTH,
+        json={
+            "synthetic_bars": 600,
+            "walkforward": {"grid": {"fast_ema": [10]}, "train": 500, "test": 300},
+        },
+    )
+    assert r.status_code == 422 and "no alcanzan" in r.json()["detail"]
+
+
+async def test_walkforward_on_a_data_file_end_to_end(data_client):
+    body = {
+        "data_files": [{"path": "BTCUSDT_1h.csv", "symbol": "BTC/USDT"}],
+        "symbols": ["BTC/USDT"],
+        "mc_sims": 200,
+        "strategy": {"fast_ema": 10, "slow_ema": 50},
+        "walkforward": {"grid": {"fast_ema": [10, 20]}, "train": 600, "test": 300, "warmup": 200},
+    }
+    r = await data_client.post("/api/backtests", headers=AUTH, json=body)
+    assert r.status_code == 202, r.text
+    assert r.json()["spec"]["data_files"] == [
+        ["BTCUSDT_1h.csv", "BTC/USDT"]
+    ]  # sin rutas del server
+    job = await wait_job(data_client, r.json()["id"])
+    assert job["status"] == "done", job["error"]
+    res = job["result"]
+    assert res["n_bars"] == 1500
+    wf = res["walkforward"]
+    assert len(wf["windows"]) == 3 and wf["n_trials"] == 6
+    assert set(wf["param_stability"]) == {"fast_ema"}
+    assert "sharpe" in wf["oos_report"] and len(wf["oos_equity"]) > 10

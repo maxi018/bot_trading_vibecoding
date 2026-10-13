@@ -31,6 +31,30 @@ class JobError(ValueError):
     pass
 
 
+MAX_WF_BACKTESTS = 300  # combinaciones x ventanas: más que esto ocupa el worker una eternidad
+DATA_SUFFIXES = (".csv", ".parquet")
+
+
+def check_wf_budget(wf: dict[str, Any], n_bars: int) -> int:
+    """Valida el walk-forward y devuelve la cantidad de backtests que implica."""
+    combos = 1
+    for values in wf["grid"].values():
+        combos *= max(1, len(values))
+    windows = max(0, (n_bars - int(wf["train"])) // int(wf["test"]))
+    if windows < 1:
+        raise JobError(
+            f"Walk-forward imposible: {n_bars} barras no alcanzan para train={wf['train']} + "
+            f"test={wf['test']}"
+        )
+    total = combos * windows
+    if total > MAX_WF_BACKTESTS:
+        raise JobError(
+            f"Walk-forward demasiado grande: {combos} combinaciones x {windows} ventanas = "
+            f"{total} backtests (máximo {MAX_WF_BACKTESTS}). Achicá la grilla o agrandá test."
+        )
+    return total
+
+
 def _histogram(samples: list[float], bins: int = 30) -> list[dict[str, float]]:
     if not samples:
         return []
@@ -101,6 +125,8 @@ def run_job(cfg_dict: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
 
     if spec.get("walkforward"):
         wf_spec = spec["walkforward"]
+        n_ts = len({b.ts for b in bars})
+        check_wf_budget(wf_spec, n_ts)
         wf = walk_forward(
             cfg,
             bars,
@@ -210,11 +236,31 @@ class BacktestJobs:
             "mc_sims": max(100, min(int(req.get("mc_sims") or 2000), 20_000)),
             "walkforward": req.get("walkforward"),
         }
+        if spec["walkforward"] and not spec["data_files"]:
+            spec["wf_backtests"] = check_wf_budget(spec["walkforward"], n)
         return cfg, spec
+
+    def datasets(self) -> list[dict[str, Any]]:
+        """Archivos de datos disponibles (solo dentro de api.data_dir)."""
+        if not self.data_dir.is_dir():
+            return []
+        out = []
+        for p in sorted(self.data_dir.rglob("*")):
+            if p.is_file() and p.suffix.lower() in DATA_SUFFIXES:
+                out.append({"path": str(p.relative_to(self.data_dir)), "size": p.stat().st_size})
+        return out[:500]
 
     def submit(self, req: dict[str, Any]) -> Job:
         cfg, spec = self.build_spec(req)
-        job = Job(id=f"bt-{next(self._ids)}", spec=spec | {"strategy": cfg["strategy"]})
+        shown = spec | {
+            "strategy": cfg["strategy"],
+            "risk": {k: cfg["risk"][k] for k in (req.get("risk") or {})},
+            "data_files": [
+                [str(Path(path).relative_to(self.data_dir)), sym]
+                for path, sym in spec["data_files"]
+            ],
+        }
+        job = Job(id=f"bt-{next(self._ids)}", spec=shown)
         self.jobs[job.id] = job
         while len(self.jobs) > MAX_JOBS_KEPT:
             self.jobs.pop(next(iter(self.jobs)))

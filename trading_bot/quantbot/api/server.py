@@ -283,6 +283,14 @@ def create_api(app: TradingApp, token: str) -> FastAPI:
             raise HTTPException(422, str(exc)) from exc
         return job.summary()
 
+    @r.get("/api/backtests/datasets")
+    async def backtest_datasets() -> dict[str, Any]:
+        return {
+            "data_dir": app.cfg.api.data_dir,
+            "datasets": jobs.datasets(),
+            "symbols": list(app.cfg.strategy.symbols),
+        }
+
     @r.get("/api/backtests")
     async def backtest_list() -> dict[str, Any]:
         return {"jobs": [j.summary() for j in reversed(jobs.jobs.values())]}
