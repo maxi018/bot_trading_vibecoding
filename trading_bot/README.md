@@ -260,6 +260,10 @@ datos, y cada timeframe evaluado cuenta como una prueba (`--trials` = cantidad d
 timeframes). Si empezás a tunear mirando estos resultados, subí `--trials` (Deflated
 Sharpe) o el número deja de significar algo.
 
+**Bitácora**: cada idea probada contra datos reales (y su resultado, bueno o malo) va en
+[`research/LOG.md`](research/LOG.md), junto con el contador de pruebas acumuladas.
+Estado actual: el trend following de ejemplo **no tiene edge** ni en 1h ni en 4h.
+
 ---
 
 ## 7. Deployment en producción

@@ -61,6 +61,9 @@ env:
   END: ${{ inputs.end }}
   CONFIG: config/default.toml
   PYTHONUNBUFFERED: "1"
+  # Pruebas ya hechas que este workflow NO corre (ver trading_bot/research/LOG.md).
+  # El Deflated Sharpe usa TRIALS_PRIOR + cantidad de timeframes de esta corrida.
+  TRIALS_PRIOR: "0"
 
 jobs:
   data:
@@ -80,7 +83,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -e .   # el núcleo es solo stdlib
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: trading_bot/data/.cache
           key: binance-v2-${{ github.run_id }}
@@ -103,7 +106,7 @@ jobs:
       - name: Resumen
         run: |
           { echo "### Datos ($TIMEFRAMES, desde $START)"; echo '```'; cat download.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: market-data
           path: trading_bot/data/*.csv
@@ -124,19 +127,21 @@ jobs:
         working-directory: trading_bot
     env:
       TF: ${{ matrix.timeframe }}
-      TRIALS: ${{ strategy.job-total }}
+      TRIALS_HERE: ${{ strategy.job-total }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - run: pip install -e .
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: market-data
           path: trading_bot/data
       - name: Backtest (portafolio completo)
         run: |
+          TRIALS=$((TRIALS_PRIOR + TRIALS_HERE))
+          echo "TRIALS=$TRIALS" >> "$GITHUB_ENV"
           DATA=$(python -c "import os; print(','.join('data/%s_%s.csv' % (s.strip().replace('/', '').upper(), os.environ['TF']) for s in os.environ['SYMBOLS'].split(',') if s.strip()))")
           mkdir -p results
           # Parámetros del TOML fijados ANTES de mirar estos datos; cada timeframe = 1 prueba.
@@ -153,7 +158,7 @@ jobs:
             echo "### $TF con costos x2 (si acá muere, el edge eran los costos)"
             echo '```'; cat "results/backtest_${TF}_stress2.txt"; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: backtest-results-${{ matrix.timeframe }}
           path: trading_bot/results/
@@ -179,7 +184,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -e .
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: market-data
           path: trading_bot/data
