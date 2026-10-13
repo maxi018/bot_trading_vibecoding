@@ -24,7 +24,7 @@ interface WfResult {
 }
 interface JobResult {
   report: Report; equity: [number, number][]; killed: boolean; kill_reason: string; orders_sent: number;
-  vetoes: number; fees_paid: number; n_bars: number; montecarlo?: McResult; walkforward?: WfResult;
+  vetoes: number; fees_paid: number; n_bars: number; n_trials?: number; montecarlo?: McResult; walkforward?: WfResult;
 }
 type Job = JobSummary & { result: JobResult | null };
 
@@ -239,7 +239,10 @@ function BacktestFormCard({ onSubmitted }: { onSubmitted: (id: string) => void }
       )}
       <div className="dialog-actions">
         <span className="muted" style={{ marginRight: "auto", fontSize: 12 }}>
-          Corre en un proceso aparte: no frena al bot. Cuenta {built.trialsUsed} prueba(s) para el Deflated Sharpe.
+          Corre en un proceso aparte: no frena al bot.{" "}
+          {form.walkforward && form.source === "files"
+            ? "Las configuraciones del walk-forward cuentan como pruebas para el Deflated Sharpe."
+            : `Cuenta ${built.trialsUsed} prueba(s) para el Deflated Sharpe.`}
         </span>
         <button className="btn primary" disabled={!built.body || sending} onClick={submit}>{sending ? "Enviando…" : "Lanzar backtest"}</button>
       </div>
@@ -279,7 +282,8 @@ function JobView({ id, status, theme }: { id: string; status?: string; theme: st
       <div className="card ref-card">
         <div>
           <div className="stat-label">Resultado</div>
-          <div><span className="mono strong">{id}</span> · {dataLabel(job.spec)} · {r.n_bars} barras · {r.orders_sent} órdenes · {r.vetoes} vetos</div>
+          <div><span className="mono strong">{id}</span> · {dataLabel(job.spec)} · {r.n_bars} barras · {r.orders_sent} órdenes · {r.vetoes} vetos
+            {r.n_trials ? <> · {r.n_trials} prueba(s) en el Deflated Sharpe</> : null}</div>
           <div className="muted mono" style={{ fontSize: 12 }}>{specLine(job.spec)}</div>
         </div>
         <button className="btn" onClick={setReference}>Fijar como referencia</button>
@@ -339,7 +343,7 @@ function EquityLine({ points, theme }: { points: { t: number; e: number }[]; the
 function MonteCarloCard({ mc, theme }: { mc: McResult; theme: string }) {
   const c = useMemo(() => ({
     bar: theme === "light" ? "#2a78d6" : "#3987e5", tail: css("--warning"), grid: css("--border"), text: css("--text-muted"),
-    sec: css("--text-secondary"), crit: css("--critical"), down: css("--down"),
+    sec: css("--text-secondary"), crit: css("--critical"), down: css("--down"), cursor: css("--surface-3"),
   }), [theme]);
   const data = mc.histogram.map((b) => ({ mid: (b.from + b.to) / 2, count: b.count, width: b.to - b.from }));
   const maxX = Math.max(...mc.histogram.map((b) => b.to), mc.kill_threshold * 1.05);
@@ -354,7 +358,7 @@ function MonteCarloCard({ mc, theme }: { mc: McResult; theme: string }) {
             <XAxis dataKey="mid" type="number" domain={[0, maxX]} tick={{ fill: c.text, fontSize: 11 }} tickLine={false}
               tickFormatter={(v: number) => pct(v, { digits: 0 })} />
             <YAxis tick={{ fill: c.text, fontSize: 11 }} tickLine={false} axisLine={false} width={40} />
-            <Tooltip formatter={(v) => [String(v), "simulaciones"]} labelFormatter={(x) => `DD ≈ ${pct(Number(x), { digits: 1 })}`}
+            <Tooltip cursor={{ fill: c.cursor }} formatter={(v) => [String(v), "simulaciones"]} labelFormatter={(x) => `DD ≈ ${pct(Number(x), { digits: 1 })}`}
               contentStyle={{ background: css("--surface-3"), border: `1px solid ${c.grid}`, borderRadius: 8, fontSize: 12 }} />
             <Bar dataKey="count" radius={[3, 3, 0, 0]} isAnimationActive={false}>
               {data.map((d) => <Cell key={d.mid} fill={d.mid > mc.dd_p95 ? c.tail : c.bar} />)}

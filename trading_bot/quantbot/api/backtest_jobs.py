@@ -100,7 +100,13 @@ def run_job(cfg_dict: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
             bars += generate_bars(sym, spec["synthetic_bars"], tf_ms, seed=spec["seed"] + i)
 
     out: dict[str, Any] = {}
-    res = run_backtest(cfg, bars, cost_stress=spec["cost_stress"], n_trials=spec["n_trials"])
+    # Honestidad del Deflated Sharpe: si hay walk-forward, todas sus configuraciones
+    # cuentan como pruebas hechas (con archivos, recién acá se sabe cuántas barras hay).
+    n_trials = spec["n_trials"]
+    if spec.get("walkforward"):
+        n_trials = max(n_trials, check_wf_budget(spec["walkforward"], len({b.ts for b in bars})))
+    res = run_backtest(cfg, bars, cost_stress=spec["cost_stress"], n_trials=n_trials)
+    out["n_trials"] = n_trials
     out["report"] = res.report.as_dict()
     out["equity"] = _downsample([[t, e] for t, e in zip(res.equity_ts, res.equity, strict=True)])
     out["trades"] = [{"ts": t.ts, "symbol": t.symbol, "pnl": t.pnl} for t in res.trades][-500:]

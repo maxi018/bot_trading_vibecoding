@@ -481,5 +481,6 @@ async def test_walkforward_on_a_data_file_end_to_end(data_client):
     assert res["n_bars"] == 1500
     wf = res["walkforward"]
     assert len(wf["windows"]) == 3 and wf["n_trials"] == 6
+    assert res["n_trials"] == 6  # el Deflated Sharpe del backtest principal también las cuenta
     assert set(wf["param_stability"]) == {"fast_ema"}
     assert "sharpe" in wf["oos_report"] and len(wf["oos_equity"]) > 10
