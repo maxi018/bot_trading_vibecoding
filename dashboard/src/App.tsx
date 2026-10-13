@@ -7,6 +7,7 @@ import { ToastProvider } from "./components/Toasts";
 import { Login } from "./pages/Login";
 import { ChartPage } from "./pages/Chart";
 import { Overview } from "./pages/Overview";
+import { PositionsPage } from "./pages/Positions";
 
 const PAGES = [
   { id: "overview", label: "Overview", phase: 1 },
@@ -102,6 +103,8 @@ function Terminal({ token }: { token: string }) {
       <main className={live.stale ? "is-stale" : ""}>
         {page === "overview" ? (
           <Overview live={live} />
+        ) : page === "positions" ? (
+          <PositionsPage live={live} />
         ) : page === "chart" ? (
           <ChartPage live={live} conn={conn} theme={theme} />
         ) : (
