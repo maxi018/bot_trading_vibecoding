@@ -253,3 +253,43 @@ async def test_reduce_only_is_sized_against_exchange_truth(setup):
         )
     )
     assert o2.qty == pytest.approx(0.4)
+
+
+async def test_pending_entry_keeps_its_stop_when_old_stop_fires(setup):
+    """Bug real hallado con datos reales de Binance: el stop viejo se ejecuta mientras
+    una entrada nueva está pendiente; borrar el stop deseado dejaba esa entrada, al
+    llenarse, SIN stop nativo."""
+    om, ex, pf, _, px = setup
+    om.set_desired_stop("BTC/USDT", px * 0.95)
+    await om.submit(buy(px))
+    # Señal nueva (p.ej. re-entrada/aumento): stop nuevo + límite que queda pendiente.
+    om.set_desired_stop("BTC/USDT", px * 0.90)
+    pending = await om.submit(
+        OrderRequest(
+            "BTC/USDT",
+            Side.BUY,
+            0.5,
+            OrderType.LIMIT,
+            price=px * 0.93,
+            tif=TimeInForce.GTC,
+            decision_price=px,
+            tag="entry",
+        )
+    )
+    assert pending.status is OrderStatus.OPEN
+    await ex.on_market_price("BTC/USDT", px * 0.945)  # salta el stop viejo; entrada pendiente
+    assert pf.position("BTC/USDT").qty == pytest.approx(0.0)
+    await ex.on_market_price("BTC/USDT", px * 0.92)  # se llena la entrada pendiente
+    assert pf.position("BTC/USDT").qty == pytest.approx(0.5)
+    live = [x for x in ex.orders.values() if x.type is OrderType.STOP_MARKET and not x.is_terminal]
+    assert len(live) == 1
+    assert live[0].stop_price == pytest.approx(px * 0.90) and live[0].qty == pytest.approx(0.5)
+
+
+async def test_stop_fill_without_pending_entry_clears_desired_stop(setup):
+    om, ex, pf, _, px = setup
+    om.set_desired_stop("BTC/USDT", px * 0.95)
+    await om.submit(buy(px))
+    await ex.on_market_price("BTC/USDT", px * 0.94)
+    assert pf.position("BTC/USDT").qty == pytest.approx(0.0)
+    assert om.desired_stop["BTC/USDT"] is None  # no queda un stop "huérfano" para después

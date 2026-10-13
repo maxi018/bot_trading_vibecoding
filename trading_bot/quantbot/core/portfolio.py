@@ -17,6 +17,7 @@ class ClosedTrade:
     symbol: str
     pnl: float  # neto de fees de salida (aprox.)
     ts: int
+    notional: float = 0.0  # tamaño máximo de la posición durante el trade (|qty| x precio)
 
 
 class Portfolio:
@@ -33,6 +34,7 @@ class Portfolio:
         self.consecutive_losses = 0
         self.closed_trades: list[ClosedTrade] = []
         self._trade_pnl: dict[str, float] = {}
+        self._trade_notional: dict[str, float] = {}
         self._last_ts = 0
 
     # -- updates --------------------------------------------------------------
@@ -54,10 +56,20 @@ class Portfolio:
         # PnL acumulado del "trade" (entrada -> salida completa), fees incluidos.
         self._trade_pnl[fill.symbol] = self._trade_pnl.get(fill.symbol, 0.0) + net
         closed = prev_qty != 0 and (pos.qty == 0 or (pos.qty > 0) != (prev_qty > 0))
+        sym = fill.symbol
+        if prev_qty != 0:
+            self._trade_notional[sym] = max(
+                self._trade_notional.get(sym, 0.0), abs(prev_qty) * fill.price
+            )
         if closed:
-            trade_pnl = self._trade_pnl.pop(fill.symbol)
-            self.closed_trades.append(ClosedTrade(fill.symbol, trade_pnl, fill.ts))
+            trade_pnl = self._trade_pnl.pop(sym)
+            notional = self._trade_notional.pop(sym, 0.0)
+            self.closed_trades.append(ClosedTrade(sym, trade_pnl, fill.ts, notional))
             self.consecutive_losses = self.consecutive_losses + 1 if trade_pnl < 0 else 0
+        if pos.qty != 0:  # apertura, aumento o el tramo nuevo de un flip
+            self._trade_notional[sym] = max(
+                self._trade_notional.get(sym, 0.0), abs(pos.qty) * fill.price
+            )
         self._update_peaks(fill.ts)
         return net
 

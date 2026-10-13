@@ -208,3 +208,43 @@ def test_montecarlo_shutdown_criterion_never_above_kill() -> None:
     assert "DD live > 12.00%" in mc(0.08)
     aggressive = mc(0.30)
     assert "límite efectivo" in aggressive and "DD live >" not in aggressive
+
+
+def test_closed_trade_records_peak_notional():
+    p = Portfolio(10_000)
+    p.apply_fill(Fill("a", "BTC/USDT", Side.BUY, 0.01, 100_000, 0.0, T0))
+    p.apply_fill(Fill("b", "BTC/USDT", Side.BUY, 0.01, 100_000, 0.0, T0 + H))  # sube a 2000
+    p.apply_fill(Fill("c", "BTC/USDT", Side.SELL, 0.02, 101_000, 0.0, T0 + 2 * H))
+    (trade,) = p.closed_trades
+    assert trade.notional == pytest.approx(0.02 * 101_000)
+    # flip: cierra el largo y abre un corto que es un trade nuevo
+    p.apply_fill(Fill("d", "BTC/USDT", Side.BUY, 0.01, 100_000, 0.0, T0 + 3 * H))
+    p.apply_fill(Fill("e", "BTC/USDT", Side.SELL, 0.03, 100_000, 0.0, T0 + 4 * H))
+    p.apply_fill(Fill("f", "BTC/USDT", Side.BUY, 0.02, 99_000, 0.0, T0 + 5 * H))
+    assert [round(t.notional) for t in p.closed_trades] == [2020, 1000, 2000]
+
+
+def test_montecarlo_slippage_scales_with_position_size():
+    flat = [0.0] * 400  # trades sin resultado: todo el daño es el slippage extra
+    full = monte_carlo(flat, [1.0] * 400, n_sims=300)
+    small = monte_carlo(flat, [0.1] * 400, n_sims=300)
+    assert full.ret_p50 < -0.25  # 400 trades x ~10 bps sobre todo el equity
+    assert -0.06 < small.ret_p50 < -0.02  # misma cantidad de trades al 10%: ~10x menos
+    assert monte_carlo(flat, n_sims=50).ret_p50 == pytest.approx(
+        monte_carlo(flat, [1.0] * 400, n_sims=50).ret_p50
+    )  # sin pesos = 100% del equity (pesimista)
+    with pytest.raises(ValueError):
+        monte_carlo([0.01, 0.02], [1.0], n_sims=10)
+
+
+def test_montecarlo_median_is_close_to_the_backtest_it_resamples(cfg):
+    """Regresión: el slippage sin escalar daba medianas de -38% para un backtest de -5%."""
+    res = run_backtest(cfg, generate_bars(n=6000, seed=5))
+    assert res.trade_returns and len(res.trade_weights) == len(res.trade_returns)
+    assert all(0 < w <= 1.0 for w in res.trade_weights)  # sizing de la config: <= 100%
+    mc = monte_carlo(res.trade_returns, res.trade_weights, n_sims=500)
+    hist = res.equity[-1] / res.equity[0] - 1
+    # el Montecarlo puede ser algo peor (slippage extra + fills perdidos), no otro planeta.
+    # Semillas fijas: con este backtest (27 trades, ~20% del equity c/u) la versión sin
+    # escalar se iba 2.5 puntos; la correcta, 0.5.
+    assert abs(mc.ret_p50 - hist) < 0.015

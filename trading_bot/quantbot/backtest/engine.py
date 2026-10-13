@@ -44,7 +44,8 @@ class BacktestResult:
     equity_ts: list[int]
     equity: list[float]
     trades: list[ClosedTrade]
-    trade_returns: list[float]
+    trade_returns: list[float]  # pnl / equity al abrir
+    trade_weights: list[float]  # notional / equity al abrir (para costos en el Montecarlo)
     report: PerformanceReport
     killed: bool
     kill_reason: str
@@ -113,10 +114,12 @@ class Backtester:
 
         trades = [t for t in portfolio.closed_trades if t.ts >= self.trading_start_ts]
         equity_at = dict(zip(eq_ts, eq, strict=True))
-        trade_returns = []
+        trade_returns: list[float] = []
+        trade_weights: list[float] = []
         for t in trades:
             base = equity_at.get(t.ts, cfg.initial_cash) - t.pnl
             trade_returns.append(t.pnl / base if base > 0 else 0.0)
+            trade_weights.append(t.notional / base if base > 0 else 0.0)
         report = performance_report(
             eq or [cfg.initial_cash], [t.pnl for t in trades], ppy, self.n_trials
         )
@@ -125,6 +128,7 @@ class Backtester:
             equity=eq,
             trades=trades,
             trade_returns=trade_returns,
+            trade_weights=trade_weights,
             report=report,
             killed=killed,
             kill_reason=kill_reason,

@@ -8,7 +8,7 @@ Arquitectura, Riesgo y Validación"*. Python 3.11+, `asyncio`, tipado estricto
 (`mypy --strict` limpio), **núcleo sin dependencias externas** (solo stdlib).
 
 ```
-128 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
+133 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
 backtest == paper == live (mismo pipeline)
 ```
 
@@ -251,7 +251,7 @@ Banderas rojas que el reporte marca solo: Sharpe > 3, < 100 trades, profit facto
 | Workflow | Cuándo corre | Qué hace |
 |---|---|---|
 | `CI` | cada push/PR que toca el bot, el dashboard o el empaquetado | ruff, `mypy --strict` y pytest en Python 3.11 y 3.13; typecheck, tests y build del dashboard; shellcheck de `run.sh`; build de la imagen Docker + smoke test (health, 401 sin token, 200 con token) |
-| `Backtest con datos reales` | a mano (*Actions → Run workflow*: símbolos, rango, timeframe), cuando cambia estrategia/riesgo/backtester, y el día 2 de cada mes | baja datos verificados, backtest del portafolio + Monte Carlo + costos ×2, y walk-forward por símbolo en paralelo |
+| `Backtest con datos reales` | a mano (*Actions → Run workflow*: símbolos, rango, timeframe), cuando cambia algo que afecta un backtest (estrategia, riesgo, ejecución, backtester), y el día 2 de cada mes | baja datos verificados, backtest del portafolio + Monte Carlo + costos ×2, y walk-forward por símbolo en paralelo |
 
 Los resultados quedan en el resumen del run y como artifacts (`market-data` con los CSV,
 `backtest-results` con el JSON). Los parámetros del TOML se fijan **antes** de mirar los

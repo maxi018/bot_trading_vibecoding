@@ -93,7 +93,9 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     if res.killed:
         print(f"  🚨 KILL SWITCH durante el backtest: {res.kill_reason}")
     if args.montecarlo and res.trade_returns:
-        mc = monte_carlo(res.trade_returns, kill_threshold=cfg.risk.total_drawdown_kill)
+        mc = monte_carlo(
+            res.trade_returns, res.trade_weights, kill_threshold=cfg.risk.total_drawdown_kill
+        )
         print("\n=== MONTECARLO ===")
         print(mc.pretty())
     if args.out:

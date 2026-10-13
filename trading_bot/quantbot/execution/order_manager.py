@@ -206,8 +206,11 @@ class OrderManager:
         )
         if self.stop_orders.get(fill.symbol) == fill.client_order_id:
             self.stop_orders.pop(fill.symbol, None)
-            self.desired_stop[fill.symbol] = None
             self._last_stop.pop(fill.symbol, None)
+            # Si hay una entrada pendiente, el stop deseado es el SUYO (la señal llegó
+            # después del stop viejo): borrarlo la dejaba sin stop nativo al llenarse.
+            if not self._pending_entries(fill.symbol):
+                self.desired_stop[fill.symbol] = None
             self._alert(Severity.INFO, f"Stop ejecutado en {fill.symbol} @ {fill.price:.4f}")
         for listener in self._listeners:
             await listener(fill)
@@ -286,6 +289,12 @@ class OrderManager:
                     f"No se pudo colocar stop en {symbol}",
                     f"status={new.status} {new.reject_reason}",
                 )
+
+    def _pending_entries(self, symbol: str) -> bool:
+        return any(
+            o.symbol == symbol and not o.is_terminal and not o.reduce_only
+            for o in self.orders.values()
+        )
 
     def fills_in_flight(self, symbol: str) -> bool:
         return any(

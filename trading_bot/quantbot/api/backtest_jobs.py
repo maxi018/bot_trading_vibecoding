@@ -119,7 +119,10 @@ def run_job(cfg_dict: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
 
     if spec["montecarlo"] and res.trade_returns:
         mc = monte_carlo(
-            res.trade_returns, n_sims=spec["mc_sims"], kill_threshold=cfg.risk.total_drawdown_kill
+            res.trade_returns,
+            res.trade_weights,
+            n_sims=spec["mc_sims"],
+            kill_threshold=cfg.risk.total_drawdown_kill,
         )
         out["montecarlo"] = {
             k: v for k, v in dataclasses.asdict(mc).items() if k != "dd_samples"

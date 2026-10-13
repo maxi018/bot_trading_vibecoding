@@ -5,7 +5,8 @@ peor. El sizing tiene que tolerar el DD del percentil 95, no el del backtest.
 
 Cada simulación:
   1. bootstrap de trades con reposición,
-  2. empeora la ejecución (slippage extra aleatorio),
+  2. empeora la ejecución (slippage extra aleatorio, proporcional al tamaño del trade:
+     los retornos son sobre el equity y una posición del 20% paga el 20% del slippage),
   3. pierde fills al azar (p=5%),
   4. mide max drawdown y retorno final.
 """
@@ -63,6 +64,7 @@ class MonteCarloResult:
 
 def monte_carlo(
     trade_returns: Sequence[float],
+    trade_weights: Sequence[float] | None = None,
     n_sims: int = 10_000,
     extra_slippage: float = 0.0005,  # 5 bps por lado, aleatorio uniforme [0, 2x]
     skip_prob: float = 0.05,
@@ -71,8 +73,12 @@ def monte_carlo(
 ) -> MonteCarloResult:
     if not trade_returns:
         raise ValueError("Sin trades no hay Montecarlo")
-    rng = random.Random(seed)
     n = len(trade_returns)
+    # Sin pesos se asume posición = 100% del equity (lo más pesimista).
+    weights = list(trade_weights) if trade_weights is not None else [1.0] * n
+    if len(weights) != n:
+        raise ValueError("trade_weights debe tener un peso por trade")
+    rng = random.Random(seed)
     dds: list[float] = []
     rets: list[float] = []
     for _ in range(n_sims):
@@ -80,8 +86,9 @@ def monte_carlo(
         for _ in range(n):
             if rng.random() < skip_prob:
                 continue  # fill perdido
-            r = trade_returns[rng.randrange(n)]
-            r -= rng.uniform(0, 2 * extra_slippage) * 2  # entrada + salida
+            i = rng.randrange(n)
+            # entrada + salida, escalado por el tamaño de la posición vs el equity
+            r = trade_returns[i] - weights[i] * rng.uniform(0, 2 * extra_slippage) * 2
             eq.append(eq[-1] * max(1 + r, 0.0))
         dd, _ = max_drawdown(eq)
         dds.append(dd)

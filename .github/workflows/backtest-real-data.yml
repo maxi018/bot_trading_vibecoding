@@ -1,8 +1,9 @@
 # Backtest con datos REALES de Binance (data.binance.vision, SHA-256 verificado).
 #
 # - Manual: Actions → "Backtest con datos reales" → Run workflow (símbolos, rango, timeframe).
-# - Automático: cuando cambia la estrategia, el risk engine o el backtester (para que nadie
-#   "mejore" la estrategia sin ver qué le pasa con datos de verdad), y una vez por mes.
+# - Automático: cuando cambia algo que afecta un backtest (estrategia, riesgo, ejecución,
+#   backtester: para que nadie "mejore" nada sin ver qué pasa con datos de verdad), y
+#   una vez por mes.
 #
 # Resultados: resumen en la página del run + artifacts (datos CSV y JSON de resultados).
 name: Backtest con datos reales
@@ -25,10 +26,13 @@ on:
   push:
     paths:
       - ".github/workflows/backtest-real-data.yml"
-      - "trading_bot/quantbot/data/binance_vision.py"
-      - "trading_bot/quantbot/strategy/**"
-      - "trading_bot/quantbot/risk/**"
-      - "trading_bot/quantbot/backtest/**"
+      # Todo lo que cambia un resultado de backtest (no la API/dashboard ni el modo live).
+      - "trading_bot/quantbot/**"
+      - "!trading_bot/quantbot/api/**"
+      - "!trading_bot/quantbot/app.py"
+      - "!trading_bot/quantbot/data/demo_feed.py"
+      - "!trading_bot/quantbot/data/websocket_feed.py"
+      - "!trading_bot/quantbot/execution/ccxt_exchange.py"
       - "trading_bot/config/default.toml"
   schedule:
     - cron: "17 6 2 * *" # día 2 de cada mes: suma el mes que cerró
