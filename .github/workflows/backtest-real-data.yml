@@ -21,7 +21,7 @@ on:
         default: "BTC/USDT,ETH/USDT"
       timeframes:
         description: "Timeframes (separados por coma; cada uno cuenta como una prueba)"
-        default: "1h,4h"
+        default: "1h,4h,1d"
       configs:
         description: "Configs (separadas por coma; cada una × cada timeframe = una prueba)"
         default: "config/default.toml,config/experiments/03_sma200.toml,config/experiments/05_meanrev.toml"
@@ -60,7 +60,7 @@ concurrency:
 
 env:
   SYMBOLS: ${{ inputs.symbols || 'BTC/USDT,ETH/USDT' }}
-  TIMEFRAMES: ${{ inputs.timeframes || '1h,4h' }}
+  TIMEFRAMES: ${{ inputs.timeframes || '1h,4h,1d' }}
   START: ${{ inputs.start || '2019-01' }}
   END: ${{ inputs.end }}
   CONFIGS: ${{ inputs.configs || 'config/default.toml,config/experiments/03_sma200.toml,config/experiments/05_meanrev.toml' }}
