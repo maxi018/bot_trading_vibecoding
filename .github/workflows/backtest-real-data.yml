@@ -1,9 +1,13 @@
 # Backtest con datos REALES de Binance (data.binance.vision, SHA-256 verificado).
 #
-# - Manual: Actions → "Backtest con datos reales" → Run workflow (símbolos, rango, timeframe).
+# - Manual: Actions → "Backtest con datos reales" → Run workflow (símbolos, timeframes, rango).
 # - Automático: cuando cambia algo que afecta un backtest (estrategia, riesgo, ejecución,
 #   backtester: para que nadie "mejore" nada sin ver qué pasa con datos de verdad), y
 #   una vez por mes.
+#
+# Cada timeframe es una PRUEBA más: el Deflated Sharpe se calcula con --trials = cantidad
+# de timeframes evaluados. Probar 5 timeframes y mostrar el mejor sin descontarlo es
+# exactamente el sobreajuste que este workflow existe para evitar.
 #
 # Resultados: resumen en la página del run + artifacts (datos CSV y JSON de resultados).
 name: Backtest con datos reales
@@ -14,9 +18,9 @@ on:
       symbols:
         description: "Símbolos (separados por coma)"
         default: "BTC/USDT,ETH/USDT"
-      timeframe:
-        description: "Timeframe (debe coincidir con [strategy] timeframe del config)"
-        default: "1h"
+      timeframes:
+        description: "Timeframes (separados por coma; cada uno cuenta como una prueba)"
+        default: "1h,4h"
       start:
         description: "Desde (AAAA-MM)"
         default: "2019-01"
@@ -46,7 +50,7 @@ concurrency:
 
 env:
   SYMBOLS: ${{ inputs.symbols || 'BTC/USDT,ETH/USDT' }}
-  TIMEFRAME: ${{ inputs.timeframe || '1h' }}
+  TIMEFRAMES: ${{ inputs.timeframes || '1h,4h' }}
   START: ${{ inputs.start || '2019-01' }}
   END: ${{ inputs.end }}
   CONFIG: config/default.toml
@@ -56,12 +60,13 @@ jobs:
   data:
     name: Descargar y validar datos
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: trading_bot
     outputs:
       symbols: ${{ steps.matrix.outputs.symbols }}
+      timeframes: ${{ steps.matrix.outputs.timeframes }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -71,18 +76,26 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: trading_bot/data/.cache
-          key: binance-v1-${{ env.TIMEFRAME }}-${{ github.run_id }}
-          restore-keys: binance-v1-${{ env.TIMEFRAME }}-
+          key: binance-v2-${{ github.run_id }}
+          restore-keys: binance-v2-
       - name: Descargar (checksum SHA-256 por archivo)
         run: |
-          python -m quantbot download --symbol "$SYMBOLS" --timeframe "$TIMEFRAME" \
-            --start "$START" ${END:+--end "$END"} --out-dir data | tee download.txt
+          IFS=',' read -ra TFS <<< "$TIMEFRAMES"
+          for tf in "${TFS[@]}"; do
+            python -m quantbot download --symbol "$SYMBOLS" --timeframe "$tf" \
+              --start "$START" ${END:+--end "$END"} --out-dir data | tee -a download.txt
+          done
       - id: matrix
         run: |
-          python -c "import json,os; print('symbols=' + json.dumps([s.strip() for s in os.environ['SYMBOLS'].split(',') if s.strip()]))" >> "$GITHUB_OUTPUT"
+          python - >> "$GITHUB_OUTPUT" <<'PY'
+          import json, os
+          split = lambda v: [x.strip() for x in os.environ[v].split(",") if x.strip()]
+          print("symbols=" + json.dumps(split("SYMBOLS")))
+          print("timeframes=" + json.dumps(split("TIMEFRAMES")))
+          PY
       - name: Resumen
         run: |
-          { echo "### Datos ($TIMEFRAME, desde $START)"; echo '```'; cat download.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Datos ($TIMEFRAMES, desde $START)"; echo '```'; cat download.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: market-data
@@ -90,13 +103,20 @@ jobs:
           retention-days: 30
 
   backtest:
-    name: Backtest + costos x2 + Monte Carlo
+    name: Backtest ${{ matrix.timeframe }} + costos x2 + Monte Carlo
     needs: data
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        timeframe: ${{ fromJSON(needs.data.outputs.timeframes) }}
     defaults:
       run:
         working-directory: trading_bot
+    env:
+      TF: ${{ matrix.timeframe }}
+      TRIALS: ${{ strategy.job-total }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -109,29 +129,30 @@ jobs:
           path: trading_bot/data
       - name: Backtest (portafolio completo)
         run: |
-          DATA=$(python -c "import os; print(','.join('data/%s_%s.csv' % (s.strip().replace('/', '').upper(), os.environ['TIMEFRAME']) for s in os.environ['SYMBOLS'].split(',') if s.strip()))")
+          DATA=$(python -c "import os; print(','.join('data/%s_%s.csv' % (s.strip().replace('/', '').upper(), os.environ['TF']) for s in os.environ['SYMBOLS'].split(',') if s.strip()))")
           mkdir -p results
-          # Parámetros del TOML fijados ANTES de mirar estos datos: 1 sola prueba (DSR honesto).
+          # Parámetros del TOML fijados ANTES de mirar estos datos; cada timeframe = 1 prueba.
           python -m quantbot backtest --config "$CONFIG" --data "$DATA" --symbol "$SYMBOLS" \
-            --trials 1 --montecarlo --out results/backtest.json | tee results/backtest.txt
+            --timeframe "$TF" --trials "$TRIALS" --montecarlo \
+            --out "results/backtest_$TF.json" | tee "results/backtest_$TF.txt"
           python -m quantbot backtest --config "$CONFIG" --data "$DATA" --symbol "$SYMBOLS" \
-            --trials 1 --stress 2.0 | tee results/backtest_stress2.txt
+            --timeframe "$TF" --trials "$TRIALS" --stress 2.0 | tee "results/backtest_${TF}_stress2.txt"
       - name: Resumen
         run: |
           {
-            echo "### Backtest: $SYMBOLS ($TIMEFRAME)"
-            echo '```'; cat results/backtest.txt; echo '```'
-            echo "### Con costos x2 (si acá muere, el edge eran los costos)"
-            echo '```'; cat results/backtest_stress2.txt; echo '```'
+            echo "### Backtest $TF: $SYMBOLS (Deflated Sharpe con $TRIALS pruebas)"
+            echo '```'; cat "results/backtest_$TF.txt"; echo '```'
+            echo "### $TF con costos x2 (si acá muere, el edge eran los costos)"
+            echo '```'; cat "results/backtest_${TF}_stress2.txt"; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: backtest-results
+          name: backtest-results-${{ matrix.timeframe }}
           path: trading_bot/results/
           retention-days: 90
 
   walkforward:
-    name: Walk-forward ${{ matrix.symbol }}
+    name: Walk-forward ${{ matrix.symbol }} ${{ matrix.timeframe }}
     needs: data
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -139,6 +160,7 @@ jobs:
       fail-fast: false
       matrix:
         symbol: ${{ fromJSON(needs.data.outputs.symbols) }}
+        timeframe: ${{ fromJSON(needs.data.outputs.timeframes) }}
     defaults:
       run:
         working-directory: trading_bot
@@ -155,10 +177,13 @@ jobs:
       - name: Walk-forward (train 1 año, test 3 meses, deslizante)
         env:
           SYMBOL: ${{ matrix.symbol }}
+          TF: ${{ matrix.timeframe }}
         run: |
           RAW=$(echo "$SYMBOL" | tr -d '/' | tr '[:lower:]' '[:upper:]')
-          python -m quantbot walkforward --config "$CONFIG" \
-            --data "data/${RAW}_${TIMEFRAME}.csv" --symbol "$SYMBOL" \
+          # Ventanas en TIEMPO, no en barras: 1 año de 1h = 8760 barras, de 4h = 2190.
+          read -r TRAIN TEST WARMUP < <(python -c "import os; from quantbot.core.clock import periods_per_year as p; y = p(os.environ['TF']); print(round(y), round(y / 4), min(600, round(y / 4)))")
+          python -m quantbot walkforward --config "$CONFIG" --timeframe "$TF" \
+            --data "data/${RAW}_${TF}.csv" --symbol "$SYMBOL" \
             --grid "fast_ema=10,20,30;slow_ema=100,200" \
-            --train 8760 --test 2190 --warmup 600 | tee wf.txt
-          { echo "### Walk-forward $SYMBOL"; echo '```'; cat wf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            --train "$TRAIN" --test "$TEST" --warmup "$WARMUP" | tee wf.txt
+          { echo "### Walk-forward $SYMBOL $TF"; echo '```'; cat wf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

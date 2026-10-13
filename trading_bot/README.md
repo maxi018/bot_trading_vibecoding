@@ -8,7 +8,7 @@ Arquitectura, Riesgo y Validación"*. Python 3.11+, `asyncio`, tipado estricto
 (`mypy --strict` limpio), **núcleo sin dependencias externas** (solo stdlib).
 
 ```
-134 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
+135 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
 backtest == paper == live (mismo pipeline)
 ```
 
@@ -244,19 +244,21 @@ pytest                                   # 1) todo verde antes de cualquier cosa
    si eso supera el kill-switch, avisa que el sizing es demasiado agresivo).
 
 Banderas rojas que el reporte marca solo: Sharpe > 3, < 100 trades, profit factor > 3.
-`--symbol` define tanto qué datos se cargan como qué opera la estrategia.
+`--symbol` define tanto qué datos se cargan como qué opera la estrategia; `--timeframe 4h`
+pisa el del TOML (y si el CSV no es de ese timeframe, la CLI se niega a correr).
 
 ### En GitHub Actions (sin instalar nada)
 
 | Workflow | Cuándo corre | Qué hace |
 |---|---|---|
 | `CI` | cada push/PR que toca el bot, el dashboard o el empaquetado | ruff, `mypy --strict` y pytest en Python 3.11 y 3.13; typecheck, tests y build del dashboard; shellcheck de `run.sh`; build de la imagen Docker + smoke test (health, 401 sin token, 200 con token) |
-| `Backtest con datos reales` | a mano (*Actions → Run workflow*: símbolos, rango, timeframe), cuando cambia algo que afecta un backtest (estrategia, riesgo, ejecución, backtester), y el día 2 de cada mes | baja datos verificados, backtest del portafolio + Monte Carlo + costos ×2, y walk-forward por símbolo en paralelo |
+| `Backtest con datos reales` | a mano (*Actions → Run workflow*: símbolos, timeframes, rango), cuando cambia algo que afecta un backtest (estrategia, riesgo, ejecución, backtester), y el día 2 de cada mes | baja datos verificados; por cada timeframe (default `1h,4h`): backtest del portafolio + Monte Carlo + costos ×2, y walk-forward por símbolo, todo en paralelo. Las ventanas del walk-forward son en tiempo (1 año / 3 meses), no en barras |
 
 Los resultados quedan en el resumen del run y como artifacts (`market-data` con los CSV,
 `backtest-results` con el JSON). Los parámetros del TOML se fijan **antes** de mirar los
-datos: por eso el backtest corre con `--trials 1`; si empezás a tunear mirando estos
-resultados, subí `--trials` (Deflated Sharpe) o el número deja de significar algo.
+datos, y cada timeframe evaluado cuenta como una prueba (`--trials` = cantidad de
+timeframes). Si empezás a tunear mirando estos resultados, subí `--trials` (Deflated
+Sharpe) o el número deja de significar algo.
 
 ---
 

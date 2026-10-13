@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import dataclasses
+import itertools
 import json
 import sys
 from pathlib import Path
@@ -40,16 +41,20 @@ def _parse_grid(spec: str) -> dict[str, list[Any]]:
 
 
 def _backtest_config(args: argparse.Namespace) -> AppConfig:
-    """Config de backtest; ``--symbol`` también define qué opera la estrategia.
+    """Config de backtest; ``--symbol``/``--timeframe`` pisan los del TOML.
 
     Sin esto, ``--symbol ETH/USDT`` cargaba datos de ETH pero la estrategia seguía
     mirando solo los símbolos del TOML: un backtest vacío que parece "sin señales".
     """
     cfg = load_config(args.config, mode="backtest")
+    strategy = cfg.strategy
     if args.symbol:
         symbols = tuple(s.strip() for s in args.symbol.split(",") if s.strip())
-        cfg = dataclasses.replace(cfg, strategy=dataclasses.replace(cfg.strategy, symbols=symbols))
-    return cfg
+        strategy = dataclasses.replace(strategy, symbols=symbols)
+    if getattr(args, "timeframe", None):
+        timeframe_to_ms(args.timeframe)  # valida antes de correr nada
+        strategy = dataclasses.replace(strategy, timeframe=args.timeframe)
+    return dataclasses.replace(cfg, strategy=strategy)
 
 
 def _load_bars(args: argparse.Namespace, cfg: AppConfig) -> list[Bar]:
@@ -76,6 +81,14 @@ def _load_bars(args: argparse.Namespace, cfg: AppConfig) -> list[Bar]:
         print(f"[datos] {report.summary()}")
         if not report.ok:
             sys.exit("Datos inválidos: corregir antes de backtestear")
+        # Timeframe del archivo != config: un CSV de 4h leído como 1h parece todo huecos, y
+        # uno de 1h leído como 4h tiene barras solapadas. Mejor fallar fuerte.
+        dense = sum(1 for x, y in itertools.pairwise(b) if y.ts - x.ts < tf_ms)
+        if len(b) > 10 and max(len(report.gaps), dense) > len(b) // 2:
+            sys.exit(
+                f"{path}: el archivo no parece de {cfg.strategy.timeframe} "
+                f"({len(report.gaps)} huecos, {dense} barras solapadas): usar --timeframe"
+            )
         bars += b
     return bars
 
@@ -203,6 +216,7 @@ def main(argv: list[str] | None = None) -> int:
         sp.add_argument("--config", default=None)
         sp.add_argument("--data", help="CSV/Parquet (separados por coma si multi-activo)")
         sp.add_argument("--symbol", help="Símbolos correspondientes a --data")
+        sp.add_argument("--timeframe", help="Pisa [strategy] timeframe (ej. 4h)")
         sp.add_argument("--synthetic", type=int, default=0, help="N barras sintéticas")
         sp.add_argument("--seed", type=int, default=42)
 

@@ -171,3 +171,25 @@ def test_backtest_cli_trades_the_symbol_it_loaded(
     assert rc == 0 and "3000 barras" in out
     n_trades = int(next(ln for ln in out.splitlines() if "n_trades" in ln).split()[-1])
     assert n_trades > 0
+
+
+def test_timeframe_flag_and_mismatch_guard(tmp_path: Path) -> None:
+    import argparse
+
+    from quantbot.data.historical import write_csv
+    from quantbot.data.synthetic import generate_bars
+
+    ns = argparse.Namespace(config="config/default.toml", symbol=None, timeframe="4h")
+    assert _backtest_config(ns).strategy.timeframe == "4h"
+    with pytest.raises(ValueError):
+        _backtest_config(argparse.Namespace(config=None, symbol=None, timeframe="4x"))
+
+    h1, h4 = tmp_path / "h1.csv", tmp_path / "h4.csv"
+    write_csv(h1, generate_bars("BTC/USDT", 2000, H, seed=1))
+    write_csv(h4, generate_bars("BTC/USDT", 2000, 4 * H, seed=1))
+    base = ["validate-data", "--config", "config/default.toml", "--symbol", "BTC/USDT"]
+    assert main([*base, "--data", str(h4), "--timeframe", "4h"]) == 0
+    assert main([*base, "--data", str(h1)]) == 0
+    for path, tf in ((h4, "1h"), (h1, "4h")):  # archivo y config no coinciden
+        with pytest.raises(SystemExit, match="no parece de"):
+            main([*base, "--data", str(path), "--timeframe", tf])
