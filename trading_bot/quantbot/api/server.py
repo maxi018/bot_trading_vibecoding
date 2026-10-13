@@ -24,6 +24,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import anyio
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -334,12 +335,26 @@ def create_api(app: TradingApp, token: str) -> FastAPI:
             return
 
         outbox: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1000)
+        loop = asyncio.get_running_loop()
 
-        def on_event(ev: dict[str, Any]) -> None:
+        def push(ev: dict[str, Any]) -> None:
             if outbox.full():  # cliente lento: se descarta lo más viejo
                 with contextlib.suppress(asyncio.QueueEmpty):
                     outbox.get_nowait()
             outbox.put_nowait({"type": "event", "event": ev})
+
+        def on_event(ev: dict[str, Any]) -> None:
+            # asyncio.Queue no es thread-safe: desde otro thread, put_nowait puede no
+            # despertar al sender y el evento se pierde en silencio.
+            try:
+                same_loop = asyncio.get_running_loop() is loop
+            except RuntimeError:
+                same_loop = False
+            if same_loop:
+                push(ev)
+            else:
+                with contextlib.suppress(RuntimeError):  # loop cerrado: cliente ya se fue
+                    loop.call_soon_threadsafe(push, ev)
 
         app.ui_listeners.append(on_event)
         interval = app.cfg.api.snapshot_interval_s
@@ -361,10 +376,13 @@ def create_api(app: TradingApp, token: str) -> FastAPI:
 
         try:
             await socket.send_text(json.dumps({"type": "hello", **session_info(app)}))
-            async with asyncio.TaskGroup() as tg:
-                tg.create_task(snapshots())
-                tg.create_task(sender())
-                tg.create_task(receiver())
+            # TaskGroup de anyio, no de asyncio: el servidor ASGI cancela los handlers con
+            # cancel scopes de anyio, y un asyncio.TaskGroup en el medio deja escapar el
+            # CancelledError (visto en CI con la CPU cargada al cerrar la conexión).
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(snapshots)
+                tg.start_soon(sender)
+                tg.start_soon(receiver)
         except* Exception:  # desconexión / cliente roto: solo se libera el listener
             pass
         finally:

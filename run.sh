@@ -93,7 +93,7 @@ fi
 if [[ ! -f "$STAMP" || "$BOT/pyproject.toml" -nt "$STAMP" ]]; then
   info "Instalando quantbot[$EXTRAS]"
   "$VENV/bin/pip" install -q --upgrade pip
-  "$VENV/bin/pip" install -q -e "$BOT[$EXTRAS]"
+  "$VENV/bin/pip" install -q -e "${BOT}[$EXTRAS]"
   touch "$STAMP"
 fi
 
@@ -111,7 +111,10 @@ if [[ "$DEV" == 0 ]]; then
 fi
 
 # ---------------------------------------------------------------- arrancar
-set -a; source "$ENV_FILE"; set +a
+set -a
+# shellcheck source=/dev/null
+source "$ENV_FILE"
+set +a
 cd "$BOT"
 CMD=("$VENV/bin/python" -m quantbot "$MODE" --config "config/$MODE.toml")
 

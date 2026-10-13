@@ -1,0 +1,117 @@
+# CI de quantbot: bot (Python), dashboard (React) y empaquetado (run.sh + Docker).
+# El resto del repo (NestJS) no se toca acá.
+name: CI
+
+on:
+  push:
+    paths:
+      - "trading_bot/**"
+      - "dashboard/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "run.sh"
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths:
+      - "trading_bot/**"
+      - "dashboard/**"
+      - "Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "run.sh"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Bot · Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.13"] # mínimo soportado + el de la imagen Docker
+    defaults:
+      run:
+        working-directory: trading_bot
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: trading_bot/pyproject.toml
+      - run: pip install -e ".[dashboard,dev,live]"
+      - name: Lint
+        run: ruff check . && ruff format --check .
+      - name: Tipos (mypy --strict)
+        run: mypy --strict quantbot
+      - name: Tests (risk engine, kill-switch, look-ahead, reconexión, API de control)
+        run: pytest -q
+
+  dashboard:
+    name: Dashboard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  scripts:
+    name: run.sh + compose
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: shellcheck
+        run: shellcheck run.sh
+      - name: docker compose config
+        run: touch trading_bot/.env && docker compose config -q
+
+  docker:
+    name: Imagen Docker (build + smoke test)
+    needs: [backend, dashboard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t quantbot:ci .
+      - name: Arranca en demo, sana, y exige token
+        env:
+          TOKEN: ci-smoke-token-0123456789abcdef
+        run: |
+          docker run -d --name qb -e QB_DASHBOARD_TOKEN="$TOKEN" \
+            -p 127.0.0.1:8765:8765 --read-only --tmpfs /tmp \
+            -v qb-state:/app/trading_bot/state quantbot:ci
+          for _ in $(seq 60); do
+            curl -fsS http://127.0.0.1:8765/api/health >/dev/null && break
+            sleep 1
+          done
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          test "$(code http://127.0.0.1:8765/api/health)" = 200
+          test "$(code http://127.0.0.1:8765/api/overview)" = 401
+          test "$(code -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8765/api/overview)" = 200
+          curl -fsS http://127.0.0.1:8765/ | grep -q '<div id="root">'
+          docker stop -t 60 qb
+      - name: Logs del contenedor
+        if: always()
+        run: docker logs qb 2>&1 | tail -n 80 || true
