@@ -26,6 +26,11 @@ on:
 permissions:
   contents: read
 
+# shell explícito = bash -eo pipefail: sin esto, `python ... | tee` que falla da verde.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
