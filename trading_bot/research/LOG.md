@@ -15,7 +15,7 @@ el número tiene que saber que hubo 10.
 4. **Nada pasa a paper** sin: Deflated Sharpe ≥ 0.95, walk-forward fuera de muestra
    positivo en cada símbolo, sobrevivir costos ×2, y ≥ 100 trades fuera de muestra.
 
-**Pruebas acumuladas: 2** (ambas corren en el workflow → `TRIALS_PRIOR = 0`)
+**Pruebas acumuladas: 4** (todas corren en el workflow → `TRIALS_PRIOR = 0`)
 
 ---
 
@@ -52,6 +52,28 @@ el número tiene que saber que hubo 10.
 
 - **Veredicto**: **refutada**. Mejor que 1h, pero el edge desaparece con costos ×2 y el
   walk-forward queda en cero. CAGR por debajo de la tasa libre de riesgo.
+
+## #3 y #4 — Filtro de tendencia de largo plazo: media de 200 días (1h y 4h) · 2026-10-13
+
+*Pre-registrado: este texto se commitea ANTES de escribir el código y de ver resultados.*
+
+- **Hipótesis**: el trend following pierde sobre todo en mercados bajistas y laterales
+  largos (2022). Si cada activo solo opera largo cuando su cierre DIARIO está por encima
+  de su media simple de 200 cierres diarios, se evitan esos tramos y aparece el edge.
+- **Qué cambia** (y nada más; el resto, idéntico a #1/#2 con los parámetros del TOML):
+  - Filtro **por activo** (BTC mira a BTC, ETH a ETH), con días UTC **completos**: el
+    cierre del día es el de la última barra que cierra a las 00:00 UTC (sin look-ahead).
+  - Filtro apagado → **no hay entradas** y una posición larga abierta **se cierra**.
+  - Menos de 200 días de historia → no opera (fail-closed). Esto le saca a #3/#4 los
+    primeros ~200 días de 2019 que #1/#2 sí operan: comparación algo desfavorable.
+  - Parámetro fijado ANTES: 200 días. **No se va a probar otro valor** (150, 250…) sin
+    registrarlo acá como prueba nueva.
+- **Pruebas**: 1h y 4h = 2 pruebas nuevas → contador 4. El workflow corre baseline y
+  filtro lado a lado, y el Deflated Sharpe se calcula con 4.
+- **Refuta**: cualquiera de los criterios de las Reglas (DSR < 0.95, walk-forward fuera
+  de muestra ≤ 0 en algún símbolo, muere con costos ×2, < 100 trades fuera de muestra).
+  "Mejora respecto de #1/#2" **no alcanza**: tiene que pasar los criterios por sí misma.
+- **Resultado**: *(pendiente)*
 
 ---
 
@@ -103,5 +125,4 @@ Segunda corrida: **9/9 OK** contra la testnet real. Dejó a la vista un último 
 - **1d**: ~2 800 barras por símbolo. Los parámetros están en barras (EMA 100 = 100 días).
   Ojo: el warmup del walk-forward del workflow sería 91 barras (3 meses) y la estrategia
   necesita 131–200 (`TrendFollowing.warmup_bars`): habría que fijarlo explícitamente.
-- **Filtro de régimen de mercado**: operar solo con BTC sobre su media de 200 días.
-  Necesita código nuevo en la estrategia.
+- ~~Filtro de régimen de mercado (media de 200 días)~~ → en curso como #3/#4.
