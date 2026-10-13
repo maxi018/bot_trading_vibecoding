@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Breaker } from "../api/types";
-import { BreakerCard, LimitsEditor } from "./Risk";
+import { BreakerCard, formatBody, LimitsEditor } from "./Risk";
 
 afterEach(() => { vi.restoreAllMocks(); document.body.innerHTML = ""; });
 
@@ -72,5 +72,14 @@ describe("LimitsEditor", () => {
     fireEvent.change(input(), { target: { value: "mucho" } });
     expect(screen.getByText("✕ inválido")).toBeTruthy();
     expect((screen.getByText("Revisar y aplicar") as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("formatBody", () => {
+  it("vuelve legible la auditoría de cambios de parámetros", () => {
+    const body = JSON.stringify({ max_risk_per_trade: { old: 0.01, new: 0.005, relaxes: false } });
+    expect(formatBody(body)).toBe("Riesgo máx. por trade: 1.00% → 0.50% (endurece)");
+    expect(formatBody("texto plano")).toBe("texto plano");
+    expect(formatBody('{"reason": "x", "flatten": true}')).toBe("reason: x · flatten: true");
   });
 });

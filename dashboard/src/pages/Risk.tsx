@@ -254,6 +254,25 @@ function fromLive(ev: BotEvent): LogRow | null {
   }
 }
 
+/** Los cambios de parámetros llegan como JSON {nombre: {old, new, relaxes}}: legible. */
+export function formatBody(body: string): string {
+  if (!body.startsWith("{")) return body;
+  try {
+    const obj = JSON.parse(body) as Record<string, unknown>;
+    const parts = Object.entries(obj).map(([k, v]) => {
+      if (v && typeof v === "object" && "old" in v && "new" in v) {
+        const c = v as { old: number; new: number; relaxes?: boolean };
+        const fmt = (x: number) => `${num(toDisplay(k, x), META[k]?.int ? 0 : 2)}${META[k]?.unit === "pct" ? "%" : ""}`;
+        return `${META[k]?.label ?? k}: ${fmt(c.old)} → ${fmt(c.new)} (${c.relaxes ? "relaja" : "endurece"})`;
+      }
+      return `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`;
+    });
+    return parts.join(" · ");
+  } catch {
+    return body;
+  }
+}
+
 function EventLog({ conn }: { conn: LiveConnection }) {
   const [tab, setTab] = useState<string>("");
   const [rows, setRows] = useState<LogRow[]>([]);
@@ -296,7 +315,7 @@ function EventLog({ conn }: { conn: LiveConnection }) {
             <li key={r.key}>
               <time>{new Date(r.ts).toLocaleString("es-AR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}</time>
               <span className={`tag tag-${r.kind}`}>{r.kind === "veto" ? "VETO" : r.kind === "command" ? "CMD" : r.severity}</span>
-              <span>{r.title}{r.body && <span className="mono secondary log-body"> {r.body}</span>}</span>
+              <span>{r.title}{r.body && <span className="mono secondary log-body"> {formatBody(r.body)}</span>}</span>
             </li>
           ))}
         </ul>
