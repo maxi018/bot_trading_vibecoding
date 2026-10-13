@@ -248,3 +248,12 @@ def test_montecarlo_median_is_close_to_the_backtest_it_resamples(cfg):
     # Semillas fijas: con este backtest (27 trades, ~20% del equity c/u) la versión sin
     # escalar se iba 2.5 puntos; la correcta, 0.5.
     assert abs(mc.ret_p50 - hist) < 0.015
+
+
+def test_backtest_reports_veto_reasons(cfg):
+    tight = dataclasses.replace(cfg, risk=dataclasses.replace(cfg.risk, total_drawdown_kill=0.002))
+    res = run_backtest(tight, generate_bars(n=4000, seed=5))
+    assert res.killed and res.vetoes > 0
+    assert sum(res.veto_reasons.values()) == res.vetoes
+    assert "kill_switch_engaged" in res.veto_reasons
+    assert all(":" not in why for why in res.veto_reasons)  # agrupado por motivo, sin detalle

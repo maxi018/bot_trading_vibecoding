@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import tempfile
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -53,6 +54,7 @@ class BacktestResult:
     orders_sent: int
     fees_paid: float
     alerts: list[str] = field(default_factory=list)
+    veto_reasons: dict[str, int] = field(default_factory=dict)  # motivo -> cantidad
     params: dict[str, Any] = field(default_factory=dict)
 
 
@@ -86,6 +88,9 @@ class Backtester:
         with tempfile.TemporaryDirectory(prefix="qb-bt-") as tmp:
             kill = KillSwitch(tmp)
             risk = RiskEngine(cfg.risk, cfg.costs, kill, clock, ppy, alerter)
+            veto_reasons: Counter[str] = Counter()
+            # "fat_finger_price: señal 1 vs último 2" -> "fat_finger_price"
+            risk.veto_listeners.append(lambda _sig, why: veto_reasons.update([why.split(":")[0]]))
             portfolio = Portfolio(cfg.initial_cash)
             exchange = PaperExchange(
                 clock, CostModel(cfg.costs, self.cost_stress), cfg.initial_cash, "next_bar"
@@ -136,6 +141,7 @@ class Backtester:
             orders_sent=core.orders_sent,
             fees_paid=portfolio.fees_paid,
             alerts=[a.title for a in alerter.sent],
+            veto_reasons=dict(veto_reasons.most_common()),
             params=self.params,
         )
 

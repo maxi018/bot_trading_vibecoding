@@ -90,6 +90,9 @@ def cmd_backtest(args: argparse.Namespace) -> int:
     print(f"\n=== BACKTEST ({len(bars)} barras, stress costos x{args.stress}) ===")
     print(res.report.pretty())
     print(f"  órdenes={res.orders_sent} vetos={res.vetoes} fees={res.fees_paid:.2f}")
+    if res.veto_reasons:
+        top = ", ".join(f"{why}={n}" for why, n in list(res.veto_reasons.items())[:5])
+        print(f"  vetos por motivo: {top}")
     if res.killed:
         print(f"  🚨 KILL SWITCH durante el backtest: {res.kill_reason}")
     if args.montecarlo and res.trade_returns:
