@@ -27,6 +27,7 @@ permissions:
   contents: read
 
 # shell explícito = bash -eo pipefail: sin esto, `python ... | tee` que falla da verde.
+# OJO: los `defaults` de un job REEMPLAZAN a estos (no se combinan): repetir ahí.
 defaults:
   run:
     shell: bash
@@ -46,6 +47,7 @@ jobs:
         python: ["3.11", "3.13"] # mínimo soportado + el de la imagen Docker
     defaults:
       run:
+        shell: bash
         working-directory: trading_bot
     steps:
       - uses: actions/checkout@v5
@@ -68,6 +70,7 @@ jobs:
     timeout-minutes: 15
     defaults:
       run:
+        shell: bash
         working-directory: dashboard
     steps:
       - uses: actions/checkout@v5

@@ -45,6 +45,7 @@ permissions:
   contents: read
 
 # shell explícito = bash -eo pipefail: sin esto, `python ... | tee` que falla da verde.
+# OJO: los `defaults` de un job REEMPLAZAN a estos (no se combinan): repetir ahí.
 defaults:
   run:
     shell: bash
@@ -68,6 +69,7 @@ jobs:
     timeout-minutes: 30
     defaults:
       run:
+        shell: bash
         working-directory: trading_bot
     outputs:
       symbols: ${{ steps.matrix.outputs.symbols }}
@@ -118,6 +120,7 @@ jobs:
         timeframe: ${{ fromJSON(needs.data.outputs.timeframes) }}
     defaults:
       run:
+        shell: bash
         working-directory: trading_bot
     env:
       TF: ${{ matrix.timeframe }}
@@ -168,6 +171,7 @@ jobs:
         timeframe: ${{ fromJSON(needs.data.outputs.timeframes) }}
     defaults:
       run:
+        shell: bash
         working-directory: trading_bot
     steps:
       - uses: actions/checkout@v5
