@@ -5,9 +5,10 @@
 #   backtester: para que nadie "mejore" nada sin ver qué pasa con datos de verdad), y
 #   una vez por mes.
 #
-# Cada timeframe es una PRUEBA más: el Deflated Sharpe se calcula con --trials = cantidad
-# de timeframes evaluados. Probar 5 timeframes y mostrar el mejor sin descontarlo es
-# exactamente el sobreajuste que este workflow existe para evitar.
+# Cada (config × timeframe) es una PRUEBA más: el Deflated Sharpe se calcula con
+# --trials = TRIALS_PRIOR + configs × timeframes. Probar 5 variantes y mostrar la mejor
+# sin descontarlo es exactamente el sobreajuste que este workflow existe para evitar.
+# Las configs de experimentos (config/experiments/) corren al lado de la base.
 #
 # Resultados: resumen en la página del run + artifacts (datos CSV y JSON de resultados).
 name: Backtest con datos reales
@@ -21,6 +22,9 @@ on:
       timeframes:
         description: "Timeframes (separados por coma; cada uno cuenta como una prueba)"
         default: "1h,4h"
+      configs:
+        description: "Configs (separadas por coma; cada una × cada timeframe = una prueba)"
+        default: "config/default.toml,config/experiments/03_sma200.toml"
       start:
         description: "Desde (AAAA-MM)"
         default: "2019-01"
@@ -59,10 +63,10 @@ env:
   TIMEFRAMES: ${{ inputs.timeframes || '1h,4h' }}
   START: ${{ inputs.start || '2019-01' }}
   END: ${{ inputs.end }}
-  CONFIG: config/default.toml
+  CONFIGS: ${{ inputs.configs || 'config/default.toml,config/experiments/03_sma200.toml' }}
   PYTHONUNBUFFERED: "1"
   # Pruebas ya hechas que este workflow NO corre (ver trading_bot/research/LOG.md).
-  # El Deflated Sharpe usa TRIALS_PRIOR + cantidad de timeframes de esta corrida.
+  # El Deflated Sharpe usa TRIALS_PRIOR + configs × timeframes de esta corrida.
   TRIALS_PRIOR: "0"
 
 jobs:
@@ -77,6 +81,7 @@ jobs:
     outputs:
       symbols: ${{ steps.matrix.outputs.symbols }}
       timeframes: ${{ steps.matrix.outputs.timeframes }}
+      configs: ${{ steps.matrix.outputs.configs }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -102,6 +107,11 @@ jobs:
           split = lambda v: [x.strip() for x in os.environ[v].split(",") if x.strip()]
           print("symbols=" + json.dumps(split("SYMBOLS")))
           print("timeframes=" + json.dumps(split("TIMEFRAMES")))
+          # {path, name}: el nombre (sin "/") va en títulos de jobs y nombres de artifacts.
+          configs = [{"path": c, "name": c.rsplit("/", 1)[-1].removesuffix(".toml")} for c in split("CONFIGS")]
+          for c in configs:
+              assert os.path.exists(c["path"]), c["path"]
+          print("configs=" + json.dumps(configs))
           PY
       - name: Resumen
         run: |
@@ -113,7 +123,7 @@ jobs:
           retention-days: 30
 
   backtest:
-    name: Backtest ${{ matrix.timeframe }} + costos x2 + Monte Carlo
+    name: Backtest ${{ matrix.config.name }} ${{ matrix.timeframe }} + costos x2 + Monte Carlo
     needs: data
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -121,12 +131,15 @@ jobs:
       fail-fast: false
       matrix:
         timeframe: ${{ fromJSON(needs.data.outputs.timeframes) }}
+        config: ${{ fromJSON(needs.data.outputs.configs) }}
     defaults:
       run:
         shell: bash
         working-directory: trading_bot
     env:
       TF: ${{ matrix.timeframe }}
+      CONFIG: ${{ matrix.config.path }}
+      NAME: ${{ matrix.config.name }}
       TRIALS_HERE: ${{ strategy.job-total }}
     steps:
       - uses: actions/checkout@v5
@@ -144,28 +157,28 @@ jobs:
           echo "TRIALS=$TRIALS" >> "$GITHUB_ENV"
           DATA=$(python -c "import os; print(','.join('data/%s_%s.csv' % (s.strip().replace('/', '').upper(), os.environ['TF']) for s in os.environ['SYMBOLS'].split(',') if s.strip()))")
           mkdir -p results
-          # Parámetros del TOML fijados ANTES de mirar estos datos; cada timeframe = 1 prueba.
+          # Parámetros del TOML fijados ANTES de mirar estos datos; config × timeframe = 1 prueba.
           python -m quantbot backtest --config "$CONFIG" --data "$DATA" --symbol "$SYMBOLS" \
             --timeframe "$TF" --trials "$TRIALS" --montecarlo \
-            --out "results/backtest_$TF.json" | tee "results/backtest_$TF.txt"
+            --out "results/${NAME}_$TF.json" | tee "results/${NAME}_$TF.txt"
           python -m quantbot backtest --config "$CONFIG" --data "$DATA" --symbol "$SYMBOLS" \
-            --timeframe "$TF" --trials "$TRIALS" --stress 2.0 | tee "results/backtest_${TF}_stress2.txt"
+            --timeframe "$TF" --trials "$TRIALS" --stress 2.0 | tee "results/${NAME}_${TF}_stress2.txt"
       - name: Resumen
         run: |
           {
-            echo "### Backtest $TF: $SYMBOLS (Deflated Sharpe con $TRIALS pruebas)"
-            echo '```'; cat "results/backtest_$TF.txt"; echo '```'
-            echo "### $TF con costos x2 (si acá muere, el edge eran los costos)"
-            echo '```'; cat "results/backtest_${TF}_stress2.txt"; echo '```'
+            echo "### Backtest $NAME $TF: $SYMBOLS (Deflated Sharpe con $TRIALS pruebas)"
+            echo '```'; cat "results/${NAME}_$TF.txt"; echo '```'
+            echo "### $NAME $TF con costos x2 (si acá muere, el edge eran los costos)"
+            echo '```'; cat "results/${NAME}_${TF}_stress2.txt"; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v6
         with:
-          name: backtest-results-${{ matrix.timeframe }}
+          name: backtest-results-${{ matrix.config.name }}-${{ matrix.timeframe }}
           path: trading_bot/results/
           retention-days: 90
 
   walkforward:
-    name: Walk-forward ${{ matrix.symbol }} ${{ matrix.timeframe }}
+    name: Walk-forward ${{ matrix.config.name }} ${{ matrix.symbol }} ${{ matrix.timeframe }}
     needs: data
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -174,6 +187,7 @@ jobs:
       matrix:
         symbol: ${{ fromJSON(needs.data.outputs.symbols) }}
         timeframe: ${{ fromJSON(needs.data.outputs.timeframes) }}
+        config: ${{ fromJSON(needs.data.outputs.configs) }}
     defaults:
       run:
         shell: bash
@@ -192,12 +206,15 @@ jobs:
         env:
           SYMBOL: ${{ matrix.symbol }}
           TF: ${{ matrix.timeframe }}
+          CONFIG: ${{ matrix.config.path }}
+          NAME: ${{ matrix.config.name }}
         run: |
           RAW=$(echo "$SYMBOL" | tr -d '/' | tr '[:lower:]' '[:upper:]')
           # Ventanas en TIEMPO, no en barras: 1 año de 1h = 8760 barras, de 4h = 2190.
+          # El warmup nunca queda por debajo de lo que pide la estrategia (filtro de 200 días).
           read -r TRAIN TEST WARMUP < <(python -c "import os; from quantbot.core.clock import periods_per_year as p; y = p(os.environ['TF']); print(round(y), round(y / 4), min(600, round(y / 4)))")
           python -m quantbot walkforward --config "$CONFIG" --timeframe "$TF" \
             --data "data/${RAW}_${TF}.csv" --symbol "$SYMBOL" \
             --grid "fast_ema=10,20,30;slow_ema=100,200" \
             --train "$TRAIN" --test "$TEST" --warmup "$WARMUP" | tee wf.txt
-          { echo "### Walk-forward $SYMBOL $TF"; echo '```'; cat wf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Walk-forward $NAME $SYMBOL $TF"; echo '```'; cat wf.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

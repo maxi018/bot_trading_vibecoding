@@ -20,6 +20,7 @@ from typing import Any
 from ..config import AppConfig
 from ..core.clock import periods_per_year
 from ..core.models import Bar
+from ..strategy import build_strategy
 from .engine import BacktestResult, run_backtest
 from .metrics import PerformanceReport, performance_report, simple_returns
 
@@ -69,6 +70,9 @@ def walk_forward(
     warmup_bars: int = 600,
 ) -> WalkForwardResult:
     """Walk-forward con ventanas deslizantes (por cantidad de timestamps únicos)."""
+    # Nunca menos warmup del que la estrategia declara: con un filtro de 200 días y el
+    # default de 600 barras (25 días en 1h), el filtro jamás se encendía fuera de muestra.
+    warmup_bars = max(warmup_bars, build_strategy(cfg.strategy).warmup_bars())
     ts_sorted = sorted({b.ts for b in bars})
     combos = [p for p in param_grid(grid) if _valid(p, cfg)]
     if not combos:
@@ -83,12 +87,15 @@ def walk_forward(
         tr0, tr1 = ts_sorted[start], ts_sorted[start + train_bars - 1]
         te0 = ts_sorted[start + train_bars]
         te1 = ts_sorted[start + train_bars + test_bars - 1]
-        train = [b for b in bars if tr0 <= b.ts <= tr1]
+        # Train también con warmup: antes arrancaba en frío y sus primeras barras operaban
+        # con indicadores sin calibrar.
+        train_from = ts_sorted[max(0, start - warmup_bars)]
+        train = [b for b in bars if train_from <= b.ts <= tr1]
         # 1) Optimizar SOLO en train
         best: tuple[float, dict[str, Any]] = (-math.inf, combos[0])
         for params in combos:
             n_trials += 1
-            res = run_backtest(cfg, train, strategy_params=params)
+            res = run_backtest(cfg, train, strategy_params=params, trading_start_ts=tr0)
             score = res.report.sharpe if res.report.n_trades >= 5 else -math.inf
             if score > best[0]:
                 best = (score, params)

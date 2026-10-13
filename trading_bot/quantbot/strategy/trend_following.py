@@ -9,6 +9,8 @@ Reglas:
   exchange) o time stop (el trade no avanzó 1 ATR en N barras).
 - Sin take profit fijo: unas pocas tendencias grandes pagan las muchas pérdidas chicas.
 - Tras un stop-out se exige un cruce NUEVO para reentrar (evita whipsaw).
+- Opcional (``trend_filter_days``): solo largos con el cierre diario sobre su media de
+  N días (cortos, debajo). Si el filtro se apaga, la posición abierta se cierra.
 
 Mientras hay posición, emite en cada barra la señal vigente (dirección + stop
 actualizado): el risk engine decide si hay que operar o solo mover el stop.
@@ -19,9 +21,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..config import StrategyConfig
+from ..core.clock import MS_PER_DAY, timeframe_to_ms
 from ..core.models import Bar, Direction, Signal
 from .base import Strategy, StrategyContext
-from .indicators import ATR, EMA
+from .indicators import ATR, EMA, DailySMA
 from .regime import Regime, RegimeFilter
 
 
@@ -31,6 +34,7 @@ class _SymbolState:
     slow: EMA
     atr: ATR
     regime: RegimeFilter
+    daily: DailySMA | None = None
     prev_trend: Direction = Direction.FLAT
     direction: Direction = Direction.FLAT  # dirección del trade VIGENTE (según posición real)
     entry: float = 0.0
@@ -52,6 +56,7 @@ class TrendFollowingStrategy(Strategy):
                 slow=EMA(cfg.slow_ema),
                 atr=ATR(cfg.atr_period),
                 regime=RegimeFilter(cfg),
+                daily=DailySMA(cfg.trend_filter_days) if cfg.trend_filter_days else None,
             )
             for s in cfg.symbols
         }
@@ -59,7 +64,21 @@ class TrendFollowingStrategy(Strategy):
 
     def warmup_bars(self) -> int:
         any_state = next(iter(self._st.values()))
-        return max(self.cfg.slow_ema, any_state.regime.min_history + self.cfg.vol_lookback + 1)
+        bars = max(self.cfg.slow_ema, any_state.regime.min_history + self.cfg.vol_lookback + 1)
+        if self.cfg.trend_filter_days:
+            per_day = max(1, MS_PER_DAY // timeframe_to_ms(self.cfg.timeframe))
+            bars = max(bars, (self.cfg.trend_filter_days + 1) * per_day)
+        return bars
+
+    @staticmethod
+    def _filter_allows(st: _SymbolState, direction: Direction) -> bool:
+        """Sin filtro: todo permitido. Con filtro y sin historia suficiente: nada."""
+        if st.daily is None:
+            return True
+        sma, last = st.daily.value, st.daily.last_close
+        if sma is None or last is None:
+            return False
+        return last > sma if direction is Direction.LONG else last < sma
 
     # ------------------------------------------------------------------------
     def on_bar(self, bar: Bar, ctx: StrategyContext) -> list[Signal]:
@@ -70,6 +89,8 @@ class TrendFollowingStrategy(Strategy):
         slow = st.slow.update(bar.close)
         atr = st.atr.update(bar)
         regime = st.regime.update(bar)
+        if st.daily is not None:
+            st.daily.update(bar)
         self.last_regime[bar.symbol] = regime
         if not (st.slow.ready and st.atr.ready) or atr is None or atr <= 0:
             return []
@@ -119,6 +140,8 @@ class TrendFollowingStrategy(Strategy):
             return []
         if trend is Direction.SHORT and not self.cfg.allow_short:
             return []
+        if not self._filter_allows(st, trend):
+            return []
         stop = bar.close - k * atr if trend is Direction.LONG else bar.close + k * atr
         st.pending_stop = stop
         return [
@@ -150,6 +173,8 @@ class TrendFollowingStrategy(Strategy):
         exit_reason = ""
         if (long and bar.close <= st.stop) or (not long and bar.close >= st.stop):
             exit_reason = "stop"
+        elif not self._filter_allows(st, st.direction):
+            exit_reason = "trend_filter"
         elif trend is not st.direction:
             exit_reason = "trend_reversal"
         elif self.cfg.time_stop_bars and st.bars_in_trade >= self.cfg.time_stop_bars:
@@ -161,7 +186,9 @@ class TrendFollowingStrategy(Strategy):
             sig = Signal(
                 self.strategy_id, bar.symbol, bar.ts, Direction.FLAT, bar.close, reason=exit_reason
             )
-            self._reset(st, wait=exit_reason != "trend_reversal")
+            # Tras salir por el filtro o por cruce no hace falta otro cruce para reentrar:
+            # la entrada vuelve a pedir que el filtro (y el régimen) lo permitan.
+            self._reset(st, wait=exit_reason not in ("trend_reversal", "trend_filter"))
             st.exiting = True
             return [sig]
         # Stop por debajo/encima del precio (garantizado por la lógica de arriba).

@@ -73,6 +73,14 @@ el número tiene que saber que hubo 10.
 - **Refuta**: cualquiera de los criterios de las Reglas (DSR < 0.95, walk-forward fuera
   de muestra ≤ 0 en algún símbolo, muere con costos ×2, < 100 trades fuera de muestra).
   "Mejora respecto de #1/#2" **no alcanza**: tiene que pasar los criterios por sí misma.
+- **Notas de implementación** (escritas después del pre-registro; no cambian la regla):
+  - El cierre diario también se detecta con barras que no cierran a las 00:00 (al llegar
+    la primera barra del día siguiente). Con datos de Binance, alineados, es idéntico a
+    lo pre-registrado; sin esto, con datos desalineados el filtro nunca se encendía.
+  - El walk-forward ahora usa como warmup al menos lo que pide la estrategia (200 días
+    para este filtro) y calienta también las ventanas de train. Esto cambia un poco el
+    walk-forward de la base respecto de #1/#2: por eso el workflow la recalcula al lado,
+    con las mismas reglas.
 - **Resultado**: *(pendiente)*
 
 ---

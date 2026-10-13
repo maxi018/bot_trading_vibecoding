@@ -85,6 +85,9 @@ class StrategyConfig:
     max_vol_percentile: float = 0.90  # vol por encima del p90 histórico -> no entrar
     min_efficiency_ratio: float = 0.25  # Kaufman ER: debajo = mercado lateral
     er_period: int = 30
+    # Filtro de tendencia de largo plazo (experimentos #3/#4 de research/LOG.md): con N > 0,
+    # solo largos si el último cierre DIARIO está sobre su media de N días (cortos, debajo).
+    trend_filter_days: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +207,8 @@ def validate(cfg: AppConfig) -> None:
     s = cfg.strategy
     if s.fast_ema >= s.slow_ema:
         raise ConfigError("fast_ema debe ser < slow_ema")
+    if s.trend_filter_days < 0:
+        raise ConfigError("strategy.trend_filter_days no puede ser negativo (0 = apagado)")
     if s.atr_stop_mult <= 0:
         raise ConfigError("Toda posición necesita stop: atr_stop_mult > 0")
     if any(v < 0 for v in cfg.exchange.reserved.values()):

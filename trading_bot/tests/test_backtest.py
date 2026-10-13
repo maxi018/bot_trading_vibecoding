@@ -264,3 +264,14 @@ def test_reserved_balances_config():
     assert cfg.exchange.reserved == {"BTC": 1.0}
     with pytest.raises(ConfigError, match="reserved"):
         load_config(exchange={"reserved": {"BTC": -1.0}})
+
+
+def test_walk_forward_warms_the_trend_filter_out_of_sample(cfg):
+    """Con el warmup fijo de 600 barras (25 días en 1h), un filtro de 100 días no se
+    encendía nunca en ventanas de test de 41 días: walk-forward con 0 trades sin avisar."""
+    filt = dataclasses.replace(
+        cfg, strategy=dataclasses.replace(cfg.strategy, trend_filter_days=100)
+    )
+    bars = generate_bars(n=9000, seed=3)
+    wf = walk_forward(filt, bars, {"fast_ema": [20], "slow_ema": [100]}, 3000, 1000, 600)
+    assert sum(w.test.report.n_trades for w in wf.windows) > 0

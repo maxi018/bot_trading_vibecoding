@@ -31,6 +31,53 @@ class EMA:
         return self.n >= self.period
 
 
+class DailySMA:
+    """Media simple de los últimos N cierres DIARIOS (días UTC completos).
+
+    El cierre de un día es el de su última barra. Se registra cuando el día TERMINÓ: en
+    la barra que cierra justo a las 00:00 UTC (datos alineados, como los de Binance) o, si
+    las barras no están alineadas, al llegar la primera barra del día siguiente. Un día
+    en curso nunca cuenta: sin look-ahead, y el filtro cambia a lo sumo una vez por día.
+    """
+
+    DAY_MS = 86_400_000
+
+    def __init__(self, days: int) -> None:
+        self.days = days
+        self._closes: deque[float] = deque(maxlen=days)
+        self._sum = 0.0
+        self._pending: tuple[int, float] | None = None  # (día UTC, último cierre visto)
+
+    def _push(self, close: float) -> None:
+        if len(self._closes) == self.days:
+            self._sum -= self._closes[0]
+        self._closes.append(close)
+        self._sum += close
+
+    def update(self, bar: Bar) -> None:
+        day = (bar.ts - 1) // self.DAY_MS  # una barra que cierra a las 00:00 es del día previo
+        if self._pending is not None and day > self._pending[0]:
+            self._push(self._pending[1])  # barras desalineadas: el día anterior terminó
+            self._pending = None
+        if bar.ts % self.DAY_MS == 0:
+            self._push(bar.close)  # cierra justo a las 00:00: el día terminó ahora
+            self._pending = None
+        else:
+            self._pending = (day, bar.close)
+
+    @property
+    def ready(self) -> bool:
+        return len(self._closes) == self.days
+
+    @property
+    def last_close(self) -> float | None:
+        return self._closes[-1] if self._closes else None
+
+    @property
+    def value(self) -> float | None:
+        return self._sum / self.days if self.ready else None
+
+
 class ATR:
     """Average True Range con suavizado de Wilder."""
 
