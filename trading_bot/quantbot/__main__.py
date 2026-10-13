@@ -9,6 +9,7 @@ python -m quantbot download     --symbol BTC/USDT,ETH/USDT --start 2019-01  (dat
 python -m quantbot paper        --config config/paper.toml
 python -m quantbot live         --config config/live.toml      (requiere QB_LIVE_CONFIRM)
 python -m quantbot reset-kill-switch --operator maxi --confirm
+python -m quantbot testnet-check   (QB_API_KEY/QB_API_SECRET de TESTNET: ciclo real de órdenes)
 """
 
 from __future__ import annotations
@@ -184,6 +185,34 @@ def cmd_download(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def cmd_testnet_check(args: argparse.Namespace) -> int:
+    from .config import ExchangeConfig
+    from .execution.ccxt_exchange import CcxtExchange
+    from .execution.testnet_check import run_checks
+
+    secrets = Secrets.from_env()
+    if not (secrets.api_key and secrets.api_secret):
+        sys.exit(
+            "Faltan QB_API_KEY / QB_API_SECRET de TESTNET (https://testnet.binance.vision: "
+            "login con GitHub -> Generate HMAC_SHA256 Key). Nunca las de la cuenta real."
+        )
+
+    async def go() -> int:
+        ex = CcxtExchange(ExchangeConfig(testnet=True), secrets)  # testnet forzado
+        try:
+            results = await run_checks(ex, args.symbol, args.notional)
+        finally:
+            await ex.close()
+        print(f"\n=== TESTNET CHECK {args.symbol} ({args.notional} USDT) ===")
+        for r in results:
+            print("  " + r.line())
+        failed = [r for r in results if not r.ok]
+        print("\n  " + (f"✖ {len(failed)} chequeo(s) fallaron" if failed else "✔ todo OK"))
+        return 1 if failed else 0
+
+    return asyncio.run(go())
+
+
 def cmd_run(args: argparse.Namespace, mode: str) -> int:
     from .app import TradingApp
 
@@ -252,6 +281,10 @@ def main(argv: list[str] | None = None) -> int:
         sp = sub.add_parser(mode)
         sp.add_argument("--config", default=None)
 
+    tc = sub.add_parser("testnet-check", help="Ciclo real de órdenes contra la testnet")
+    tc.add_argument("--symbol", default="BTC/USDT")
+    tc.add_argument("--notional", type=float, default=15.0, help="USDT por operación")
+
     rk = sub.add_parser("reset-kill-switch")
     rk.add_argument("--state-dir", default="./state")
     rk.add_argument("--operator", required=True)
@@ -275,6 +308,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_run(args, args.cmd)
         case "reset-kill-switch":
             return cmd_reset_kill(args)
+        case "testnet-check":
+            return cmd_testnet_check(args)
     return 1
 
 

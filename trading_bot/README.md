@@ -8,7 +8,7 @@ Arquitectura, Riesgo y Validación"*. Python 3.11+, `asyncio`, tipado estricto
 (`mypy --strict` limpio), **núcleo sin dependencias externas** (solo stdlib).
 
 ```
-135 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
+148 tests backend · 46 tests dashboard · ruff ✔ · mypy --strict ✔ · tsc --strict ✔
 backtest == paper == live (mismo pipeline)
 ```
 
@@ -286,8 +286,17 @@ Estado actual: el trend following de ejemplo **no tiene edge** ni en 1h ni en 4h
    equity, DD, apalancamiento, halts, reconexiones y tamaño de cola (listo para Loki/Grafana).
 8. **Fases** (spec §6.4):
    - Paper ≥ 1–3 meses: `systemctl start quantbot` (config `paper.toml`). Comparar contra el backtest.
-   - Testnet live: `live.toml` con `testnet = true`. Probar: entrada, stop nativo, cancelación,
-     corte de red, reinicio con posición abierta, reconciliación.
+   - **Testnet**: crear una API key en [testnet.binance.vision](https://testnet.binance.vision)
+     (login con GitHub → *Generate HMAC_SHA256 Key*; plata de juguete), ponerla en `.env` como
+     `QB_API_KEY`/`QB_API_SECRET` y correr el chequeo guiado:
+     ```bash
+     python -m quantbot testnet-check          # ~15 USDT de testnet, deja la cuenta como estaba
+     ```
+     Recorre entrada IOC → fill por polling (con su fee) → posición = saldo real → stop
+     nativo → consulta y cancelación por nuestro `clientOrderId` → limpieza. Después,
+     `live.toml` con `testnet = true` (en live+testnet el feed usa también los streams de
+     testnet: su libro no espeja mainnet) y probar a mano: corte de red y reinicio con
+     posición abierta.
    - Live con capital mínimo 3–6 meses: `QB_LIVE_CONFIRM=I_UNDERSTAND_THE_RISK`.
    - Escalar de a poco solo si live ≈ backtest.
 9. **Kill-switch**: si se activa, el servicio sale con código 2 y systemd **no** lo reinicia.
