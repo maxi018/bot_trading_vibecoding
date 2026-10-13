@@ -131,7 +131,7 @@ def cmd_backtest(args: argparse.Namespace) -> int:
 
 
 def cmd_walkforward(args: argparse.Namespace) -> int:
-    from .backtest.walk_forward import walk_forward
+    from .backtest.walk_forward import MIN_TRAIN_TRADES, walk_forward
 
     cfg = _backtest_config(args)
     bars = _load_bars(args, cfg)
@@ -141,6 +141,13 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
         print(
             f"  #{i:<2} params={w.best_params} train_SR={w.train_sharpe:.2f} "
             f"test_SR={w.test.report.sharpe:.2f} test_DD={w.test.report.max_drawdown:.2%}"
+            + ("  ⚠️ sin optimizar: parámetros del TOML" if w.fallback else "")
+        )
+    if wf.n_fallback:
+        print(
+            f"\n  ⚠️  {wf.n_fallback} de {len(wf.windows)} ventanas sin optimizar: ninguna "
+            f"combinación llegó a {MIN_TRAIN_TRADES} trades en train. Ahí el walk-forward "
+            "evalúa los parámetros del TOML, no la grilla."
         )
     print("\n  Estabilidad de parámetros:", wf.param_stability())
     print("\n=== OUT-OF-SAMPLE CONCATENADO ===")

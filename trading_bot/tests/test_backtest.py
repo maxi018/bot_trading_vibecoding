@@ -139,6 +139,23 @@ def test_walk_forward_uses_only_test_segments(cfg):
     assert param_grid({"a": [1, 2], "b": [3]}) == [{"a": 1, "b": 3}, {"a": 2, "b": 3}]
 
 
+def test_walk_forward_without_enough_train_trades_uses_toml_params_and_says_so(cfg):
+    """Regresión: si ninguna combinación llega a 5 trades en train, antes se elegía en
+    silencio la PRIMERA de la grilla (en 1d pasaba en casi todas las ventanas)."""
+    bars = generate_bars(n=1500, seed=11)
+    grid = {"fast_ema": [10, 30], "slow_ema": [60, 200]}
+    wf = walk_forward(cfg, bars, grid, train_bars=150, test_bars=300, warmup_bars=400)
+    toml = {"fast_ema": cfg.strategy.fast_ema, "slow_ema": cfg.strategy.slow_ema}
+    assert toml not in param_grid(grid)  # si cayera en la grilla, el test no distinguiría
+    assert wf.windows and wf.n_fallback == len(wf.windows)
+    for w in wf.windows:
+        assert w.fallback and w.train_sharpe == -math.inf
+        assert w.best_params == toml
+
+    ok = walk_forward(cfg, bars, grid, train_bars=900, test_bars=300, warmup_bars=200)
+    assert not any(w.fallback for w in ok.windows if w.train_sharpe > -math.inf)
+
+
 def test_data_validation_and_csv_roundtrip(tmp_path):
     bars = generate_bars(n=50, seed=1)
     dirty = bars[:10] + bars[12:] + [bars[5]]  # hueco + duplicado + desorden

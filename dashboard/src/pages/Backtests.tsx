@@ -19,7 +19,7 @@ interface McResult {
 }
 interface WfResult {
   n_trials: number;
-  windows: { test_start: number; test_end: number; params: Record<string, number>; train_sharpe: number; test_sharpe: number; test_max_dd: number }[];
+  windows: { test_start: number; test_end: number; params: Record<string, number>; train_sharpe: number | null; fallback?: boolean; test_sharpe: number; test_max_dd: number }[];
   param_stability: Record<string, number[]>; oos_report: Report; oos_equity: number[];
 }
 interface JobResult {
@@ -391,7 +391,8 @@ function WalkForwardCard({ wf, theme }: { wf: WfResult; theme: string }) {
   const rep = wf.oos_report;
   const n = (k: string) => (typeof rep[k] === "number" ? (rep[k] as number) : null);
   const unstable = Object.values(wf.param_stability).some((vals) => new Set(vals).size > 1);
-  const degraded = wf.windows.filter((w) => w.test_sharpe < w.train_sharpe - 1).length;
+  const degraded = wf.windows.filter((w) => w.train_sharpe !== null && w.test_sharpe < w.train_sharpe - 1).length;
+  const fallback = wf.windows.filter((w) => w.fallback).length;
   return (
     <section className="card" aria-labelledby="wf-title">
       <h2 className="card-title" id="wf-title">Walk-forward ({wf.windows.length} ventanas · {wf.n_trials} pruebas)</h2>
@@ -401,9 +402,10 @@ function WalkForwardCard({ wf, theme }: { wf: WfResult; theme: string }) {
         <div className="card"><div className="stat-label">Retorno out-of-sample</div><div className="stat-value">{pct(n("total_return"), { signed: true })}</div></div>
         <div className="card"><div className="stat-label">Deflated Sharpe OOS</div><div className="stat-value">{pct(n("deflated_sharpe"), { digits: 0 })}</div></div>
       </div>
-      {(unstable || degraded > 0) && (
+      {(unstable || degraded > 0 || fallback > 0) && (
         <div className="sizing-warning" style={{ marginBottom: 12 }}>
           {unstable && <div><span aria-hidden>⚠ </span>Los parámetros óptimos cambian entre ventanas: puede ser ruido optimizado, no un edge estable.</div>}
+          {fallback > 0 && <div><span aria-hidden>⚠ </span>{fallback} de {wf.windows.length} ventanas sin optimizar: ninguna combinación operó lo suficiente en train y se usaron los parámetros del TOML.</div>}
           {degraded > 0 && <div><span aria-hidden>⚠ </span>{degraded} de {wf.windows.length} ventanas rinden mucho peor en test que en train (señal de overfitting).</div>}
         </div>
       )}
@@ -413,9 +415,9 @@ function WalkForwardCard({ wf, theme }: { wf: WfResult; theme: string }) {
           {wf.windows.map((w) => (
             <tr key={w.test_start}>
               <td data-label="Test desde" className="num secondary">{new Date(w.test_start).toLocaleDateString("es-AR")}</td>
-              <td data-label="Parámetros" className="mono">{Object.entries(w.params).map(([k, v]) => `${k}=${v}`).join(" · ")}</td>
+              <td data-label="Parámetros" className="mono">{Object.entries(w.params).map(([k, v]) => `${k}=${v}`).join(" · ")}{w.fallback ? " (TOML)" : ""}</td>
               <td data-label="Sharpe train" className="r num">{num(w.train_sharpe)}</td>
-              <td data-label="Sharpe test" className={`r num ${w.test_sharpe < w.train_sharpe - 1 ? "down" : ""}`}>{num(w.test_sharpe)}</td>
+              <td data-label="Sharpe test" className={`r num ${w.train_sharpe !== null && w.test_sharpe < w.train_sharpe - 1 ? "down" : ""}`}>{num(w.test_sharpe)}</td>
               <td data-label="Max DD test" className="r num">{pct(w.test_max_dd)}</td>
             </tr>
           ))}
