@@ -350,3 +350,5 @@ main { flex: 1; width: 100%; max-width: 1400px; margin: 0 auto; padding: 16px; }
 .metric-note { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
 .metric-note.warn { color: var(--warning); }
 .ref-card { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.sizing-warning { margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px;
+  border: 1px solid var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent); }

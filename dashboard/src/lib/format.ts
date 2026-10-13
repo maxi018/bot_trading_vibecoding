@@ -44,9 +44,12 @@ export function age(seconds: number | null | undefined): string {
 }
 
 export function duration(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  return h ? `${h} h ${m} min` : `${m} min`;
+  if (d >= 2) return h ? `${d} d ${h} h` : `${d} d`; // "633 h" no se lee; "26 d 9 h" sí
+  const hours = Math.floor(seconds / 3600);
+  return hours ? `${hours} h ${m} min` : `${m} min`;
 }
 
 export function clock(tsMs: number): string {

@@ -23,3 +23,13 @@ describe("formato", () => {
     expect(pct(0.0123, { signed: true })).toBe("+1.23%");
   });
 });
+
+describe("duración", async () => {
+  const { duration } = await import("../lib/format");
+  it("horas para lo corto, días para lo largo", () => {
+    expect(duration(90 * 60)).toBe("1 h 30 min");
+    expect(duration(30 * 3600)).toBe("30 h 0 min");
+    expect(duration(633 * 3600)).toBe("26 d 9 h");
+    expect(duration(48 * 3600)).toBe("2 d");
+  });
+});

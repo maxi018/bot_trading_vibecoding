@@ -16,7 +16,7 @@ interface Reference {
   n_bars: number | null;
   report: Report;
   equity: Point[];
-  montecarlo: { dd_p95: number; dd_p50: number; n_sims: number } | null;
+  montecarlo: { dd_p95: number; dd_p50: number; n_sims: number; prob_dd_over_kill: number } | null;
 }
 interface MetricsResponse {
   report: Report;
@@ -76,7 +76,12 @@ export function MetricsPage({ conn, theme }: { conn: LiveConnection; theme: stri
   ];
 
   const liveMaxDd = n(live, "max_drawdown");
-  const shutdownDd = ref?.montecarlo ? 1.5 * ref.montecarlo.dd_p95 : null;
+  const rawShutdown = ref?.montecarlo ? 1.5 * ref.montecarlo.dd_p95 : null;
+  // Si el criterio estadístico es más laxo que el kill duro, el kill llega primero:
+  // el límite EFECTIVO es el menor de los dos.
+  const shutdownLooserThanKill = rawShutdown !== null && rawShutdown >= data.drawdown_kill;
+  const shutdownDd = rawShutdown === null ? null : Math.min(rawShutdown, data.drawdown_kill);
+  const pKill = ref?.montecarlo?.prob_dd_over_kill ?? null;
 
   return (
     <div className="grid" style={{ gap: 16 }}>
@@ -116,8 +121,18 @@ export function MetricsPage({ conn, theme }: { conn: LiveConnection; theme: stri
           <h2 className="card-title" id="sd-title">Criterio de apagado (definido ANTES de prender)</h2>
           {shutdownDd !== null ? (
             <>
-              <Meter label="Max DD live vs. 1.5 × DD p95 de Montecarlo" value={liveMaxDd} limit={shutdownDd}
-                format={(v) => pct(v)} hint="al límite: la estrategia se considera rota" />
+              <Meter label={shutdownLooserThanKill ? "Max DD live vs. kill-switch (límite efectivo)" : "Max DD live vs. 1.5 × DD p95 de Montecarlo"}
+                value={liveMaxDd} limit={shutdownDd}
+                format={(v) => pct(v)} hint={shutdownLooserThanKill ? "al límite: KILL" : "al límite: la estrategia se considera rota"} />
+              {shutdownLooserThanKill && (
+                <div className="sizing-warning" role="note">
+                  <strong><span aria-hidden>⚠ </span>El sizing es agresivo para esta estrategia.</strong> 1.5 × p95 ={" "}
+                  {pct(rawShutdown)} supera el kill-switch ({pct(data.drawdown_kill, { digits: 0 })}): el kill salta antes
+                  que el criterio estadístico.{pKill !== null && <> Según Montecarlo, la probabilidad de tocar el kill
+                  es <strong>{pct(pKill, { digits: 0 })}</strong>.</>} Conviene bajar <span className="mono">max_risk_per_trade</span> o{" "}
+                  <span className="mono">target_vol_annual</span> hasta que el p95 quede por debajo del kill.
+                </div>
+              )}
               <p className="secondary" style={{ fontSize: 13 }}>
                 El max DD del backtest es una sola realización. Montecarlo ({ref?.montecarlo?.n_sims} simulaciones) dice que el
                 95% de los futuros posibles tiene un DD ≤ {pct(ref?.montecarlo?.dd_p95)}. Si en vivo se supera 1.5× eso, lo
@@ -244,10 +259,17 @@ function DrawdownChart({ data, shutdownDd, theme }: { data: MetricsResponse; shu
   const c = useMemo(() => ({ dd: css("--down"), grid: css("--border"), text: css("--text-muted"), crit: css("--critical"), warn: css("--warning") }), [theme]);
   if (points.length < 2) return <p className="muted" style={{ margin: 0 }}>Todavía no hay suficiente historia live.</p>;
   const tfH = data.timeframe_ms / 3_600_000;
-  const floor = Math.min(...points.map((p) => p.dd), -(shutdownDd ?? 0), -data.drawdown_kill) * 1.1;
+  // Escala según el DD REAL (si no, un DD de 3% es un hilo contra un límite de 40%).
+  const maxDd = Math.max(...points.map((p) => -p.dd), 0);
+  const floor = -Math.max(maxDd * 1.6, 0.05);
+  const offScale = [
+    // Si el apagado quedó limitado al kill, es la misma línea: no repetirla.
+    shutdownDd !== null && shutdownDd < data.drawdown_kill && shutdownDd > -floor ? `apagado a −${pct(shutdownDd)}` : null,
+    data.drawdown_kill > -floor ? `kill a −${pct(data.drawdown_kill, { digits: 0 })}` : null,
+  ].filter(Boolean);
   return (
-    <div style={{ width: "100%", height: 220 }}>
-      <ResponsiveContainer>
+    <div style={{ width: "100%", height: 240 }}>
+      <ResponsiveContainer height={220}>
         <AreaChart data={points} margin={{ top: 8, right: 88, bottom: 0, left: 0 }}>
           <CartesianGrid vertical={false} stroke={c.grid} />
           <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} tick={{ fill: c.text, fontSize: 11 }} tickLine={false}
@@ -265,6 +287,9 @@ function DrawdownChart({ data, shutdownDd, theme }: { data: MetricsResponse; shu
             label={{ value: "kill", position: "right", fill: css("--down"), fontSize: 11 }} />
         </AreaChart>
       </ResponsiveContainer>
+      {offScale.length > 0 && (
+        <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>Fuera de escala: {offScale.join(" · ")}</p>
+      )}
     </div>
   );
 }
