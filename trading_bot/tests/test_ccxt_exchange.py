@@ -13,13 +13,13 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("ccxt")
-
 from quantbot.config import ExchangeConfig, Secrets
 from quantbot.core.models import Fill, Order, OrderType, Side, TimeInForce
 from quantbot.core.portfolio import Portfolio
 from quantbot.data.websocket_feed import BinanceSpotAdapter
 from quantbot.execution.ccxt_exchange import CcxtExchange
+
+ccxt = pytest.importorskip("ccxt")  # los módulos de quantbot lo importan recién al usarlo
 
 
 def _market(base: str, min_qty: str = "0.00001") -> dict[str, Any]:
@@ -47,6 +47,8 @@ def _market(base: str, min_qty: str = "0.00001") -> dict[str, Any]:
         "permissionSets": [["SPOT"]],
     }
 
+
+UNKNOWN_ORDER = 'binance {"code":-2011,"msg":"Unknown order sent."}'
 
 EXCHANGE_INFO = {
     "timezone": "UTC",
@@ -134,6 +136,33 @@ async def test_ioc_limit_entry(binance):
     )
     ((_, sent),) = fake.sent("v3/order")
     assert sent["type"] == "LIMIT" and sent["timeInForce"] == "IOC" and sent["price"] == "61000"
+
+
+async def test_order_not_found_is_none_not_a_rejection(binance):
+    """Bug real (testnet): OrderNotFound es subclase de InvalidOrder en CCXT y caía en la
+    rama de rechazo. Consultar por clientOrderId tras un timeout dependía de esto."""
+    ex, fake = binance
+
+    def unknown(p: dict[str, str]) -> Any:
+        raise ccxt.OrderNotFound(UNKNOWN_ORDER)
+
+    fake.routes["v3/order"] = unknown
+    assert await ex.fetch_order("nunca-llego", "BTC/USDT") is None
+    await ex.cancel_order("ya-ejecutada", "BTC/USDT")  # no explota
+
+
+async def test_cancel_all_continues_when_a_symbol_has_nothing_open(binance):
+    ex, fake = binance
+    ex._symbols |= {"BTC/USDT", "ETH/USDT"}
+
+    def cancel_all(p: dict[str, str]) -> Any:
+        if p["symbol"] == "BTCUSDT":
+            raise ccxt.OrderNotFound(UNKNOWN_ORDER)
+        return []
+
+    fake.routes["v3/openOrders"] = cancel_all
+    await ex.cancel_all_orders()
+    assert {p["symbol"] for _, p in fake.sent("v3/openOrders")} == {"BTCUSDT", "ETHUSDT"}
 
 
 async def test_spot_has_no_dead_man_switch(binance):
@@ -294,6 +323,8 @@ class StatefulBinance(FakeBinance):
         if url.split("?")[0].endswith("v3/openOrders") and method == "DELETE":
             self.requests.append((method, "v3/openOrders", {}))
             live = [o for o in self.orders.values() if o["status"] == "NEW"]
+            if not live:  # como el Binance real (visto en testnet): nada abierto = -2011
+                raise ccxt.OrderNotFound(UNKNOWN_ORDER)
             for o in live:
                 o["status"] = "CANCELED"
             return live
@@ -383,3 +414,42 @@ async def test_testnet_check_refuses_mainnet():
             await run_checks(ex)
     finally:
         await ex.close()
+
+
+async def test_reserved_balances_are_not_bot_positions():
+    ex = CcxtExchange(
+        ExchangeConfig(testnet=True, reserved={"BTC": 1.0, "ETH": 1.0}),
+        Secrets(api_key="k", api_secret="s"),
+    )
+    fake = FakeBinance()
+    ex.ex.fetch = fake.fetch
+    ex.ex.options["fetchCurrencies"] = False
+    fake.routes["v3/account"] = lambda p: {
+        "balances": [
+            {"asset": "BTC", "free": "1.25", "locked": "0"},  # 1 reservado + 0.25 del bot
+            {"asset": "ETH", "free": "1.00001", "locked": "0"},  # reservado + polvo
+        ]
+    }
+    ex._symbols |= {"BTC/USDT", "ETH/USDT"}
+    try:
+        assert await ex.fetch_positions() == {"BTC/USDT": pytest.approx(0.25)}
+    finally:
+        await ex.close()
+
+
+async def test_float_noise_does_not_lose_a_step_when_truncated(binance):
+    """Visto en la testnet real: 1.00036 - 1.00018 = 0.000179999… y Binance trunca a
+    0.00017, dejando polvo que no se puede proteger con stop (menor al mínimo de orden).
+    Lo mismo con dos fills parciales: 0.00007 + 0.00011."""
+    ex, fake = binance
+    fake.routes["v3/order"] = lambda p: ORDER_ACK
+    await ex.create_order(
+        _order(
+            side=Side.SELL,
+            type=OrderType.STOP_MARKET,
+            stop_price=60000.0,
+            qty=0.00007 + 0.00011,
+        )
+    )
+    ((_, sent),) = fake.sent("v3/order")
+    assert sent["quantity"] == "0.00018"

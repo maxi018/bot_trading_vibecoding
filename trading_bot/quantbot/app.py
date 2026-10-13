@@ -294,7 +294,33 @@ class TradingApp:
         for sym in positions:
             pos = self.portfolio.position(sym)
             pos.avg_entry = self.portfolio.marks.get(sym, 0.0)  # mejor estimación disponible
-        return True
+        return self._adopted_positions_are_plausible(positions)
+
+    def _adopted_positions_are_plausible(self, positions: dict[str, float]) -> bool:
+        """Fail-closed: el bot nunca arma una posición más grande que ``max_position_pct``.
+        Si encuentra una así (o no la puede valuar), esos fondos no son suyos: ahorro del
+        usuario o el saldo de regalo de la testnet. Adoptarlos haría que el riesgo los
+        "reduzca", o sea, que venda activos que el bot nunca compró."""
+        if not positions:
+            return True
+        equity = self.portfolio.equity
+        limit = self.cfg.risk.max_position_pct * equity * 1.05  # margen por movimiento
+        bad = []
+        for sym, qty in positions.items():
+            mark = self.portfolio.marks.get(sym, 0.0)
+            if mark <= 0:
+                bad.append(f"{sym}: {qty} (sin precio para valuarla)")
+            elif abs(qty) * mark > limit:
+                bad.append(f"{sym}: {qty} ≈ {abs(qty) * mark:.0f} > máx. {limit:.0f}")
+        if not bad:
+            return True
+        self.alerter.alert(
+            Severity.CRITICAL,
+            "Bot NO arranca: la cuenta tiene fondos que no parecen del bot",
+            "; ".join(bad) + ". Si son tuyos (o el saldo de regalo de la testnet), "
+            "declaralos en [exchange] reserved = { BTC = ... } o usá una subcuenta dedicada.",
+        )
+        return False
 
     async def _warmup(self) -> None:
         """Carga historia reciente para calentar indicadores SIN operar."""
@@ -308,6 +334,11 @@ class TradingApp:
             log.warning("ccxt no instalado: sin warmup, la estrategia tardará %d barras", n)
             return
         ex = getattr(ccxt_async, self.cfg.exchange.name)({"enableRateLimit": True})
+        if self.cfg.mode == "live" and self.cfg.exchange.testnet:
+            # Calentar con las velas del mercado donde se va a operar (testnet != mainnet).
+            if self.cfg.exchange.name == "binance":
+                ex.options.setdefault("fetchMarkets", {})["types"] = ["spot"]
+            ex.set_sandbox_mode(True)
         tf_ms = timeframe_to_ms(self.cfg.strategy.timeframe)
         self.core.trading_start_ts = self.clock.now_ms()
         try:

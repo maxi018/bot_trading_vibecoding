@@ -108,6 +108,10 @@ class ExchangeConfig:
     heartbeat_timeout_s: float = 15.0  # sin mensajes WS en X s -> feed muerto
     dead_man_switch_s: int = 60  # cancelAllAfter nativo si el exchange lo soporta
     ws_url: str = "wss://stream.binance.com:9443/stream"
+    # Saldos de la cuenta que NO son del bot (ahorro propio, el saldo de regalo de la
+    # testnet): se restan antes de calcular sus posiciones, así nunca los opera.
+    # Ej.: reserved = { BTC = 1.0, ETH = 1.0 }. Mejor aún: subcuenta dedicada.
+    reserved: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +206,8 @@ def validate(cfg: AppConfig) -> None:
         raise ConfigError("fast_ema debe ser < slow_ema")
     if s.atr_stop_mult <= 0:
         raise ConfigError("Toda posición necesita stop: atr_stop_mult > 0")
+    if any(v < 0 for v in cfg.exchange.reserved.values()):
+        raise ConfigError("exchange.reserved: los saldos reservados no pueden ser negativos")
     if not 0 < cfg.api.port < 65536:
         raise ConfigError("api.port inválido")
     if cfg.initial_cash <= 0:

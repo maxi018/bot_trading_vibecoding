@@ -19,7 +19,7 @@ from dataclasses import dataclass
 
 from ..core.models import Fill, Order, OrderStatus, OrderType, Side, TimeInForce
 from .base import ExchangeError
-from .ccxt_exchange import CcxtExchange
+from .ccxt_exchange import CcxtExchange, _clean_qty
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +125,7 @@ async def run_checks(
         )
 
         # 4) Stop nativo por lo que REALMENTE se tiene (no por lo comprado)
-        held = float(ex.ex.amount_to_precision(symbol, pos - pos_before))
+        held = float(ex.ex.amount_to_precision(symbol, _clean_qty(pos - pos_before)))
         stop = Order(
             f"{tag}stop",
             symbol,
@@ -168,11 +168,15 @@ async def run_checks(
     except ExchangeError as exc:
         record("Error del exchange", False, str(exc))
     finally:
-        # 7) Limpieza: cancelar lo nuestro y vender lo comprado, pase lo que pase
+        # 7) Limpieza: cancelar lo nuestro y vender lo comprado, pase lo que pase. Cada
+        # paso por separado: que falle la cancelación no puede impedir la venta.
         try:
             await ex.cancel_all_orders(symbol)
+        except ExchangeError as exc:
+            record("Limpieza: cancelar órdenes abiertas", False, str(exc))
+        try:
             extra = (await ex.fetch_positions()).get(symbol, 0.0) - pos_before
-            sell = float(ex.ex.amount_to_precision(symbol, max(extra, 0.0)))
+            sell = float(ex.ex.amount_to_precision(symbol, _clean_qty(max(extra, 0.0))))
             if sell >= max(min_step, 1e-12):
                 await ex.create_order(
                     Order(

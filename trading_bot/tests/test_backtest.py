@@ -257,3 +257,10 @@ def test_backtest_reports_veto_reasons(cfg):
     assert sum(res.veto_reasons.values()) == res.vetoes
     assert "kill_switch_engaged" in res.veto_reasons
     assert all(":" not in why for why in res.veto_reasons)  # agrupado por motivo, sin detalle
+
+
+def test_reserved_balances_config():
+    cfg = load_config(exchange={"reserved": {"BTC": 1.0}})
+    assert cfg.exchange.reserved == {"BTC": 1.0}
+    with pytest.raises(ConfigError, match="reserved"):
+        load_config(exchange={"reserved": {"BTC": -1.0}})
