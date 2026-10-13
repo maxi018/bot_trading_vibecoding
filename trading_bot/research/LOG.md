@@ -81,7 +81,33 @@ el número tiene que saber que hubo 10.
     para este filtro) y calienta también las ventanas de train. Esto cambia un poco el
     walk-forward de la base respecto de #1/#2: por eso el workflow la recalcula al lado,
     con las mismas reglas.
-- **Resultado**: *(pendiente)*
+- **Resultado** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38462645190);
+  base recalculada en la misma corrida, Deflated Sharpe con 4 pruebas):
+
+  | | base 1h | **#3 filtro 1h** | base 4h | **#4 filtro 4h** |
+  |---|---|---|---|---|
+  | Backtest | −10.1 % | −9.9 % | +10.6 % | +11.3 % (CAGR 1.4 %) |
+  | Sharpe · PF | −0.35 · 0.88 | −0.48 · 0.81 | 0.33 · 1.26 | 0.42 · 1.44 |
+  | Max DD | 13.5 % | 12.4 % | 9.5 % | 10.5 % |
+  | Trades | 734 | 407 | 171 | 103 |
+  | Deflated Sharpe | 0.02 | 0.01 | 0.45 | 0.55 |
+  | Costos ×2 | −14.2 %, kill | −14.7 %, kill | −4.5 % | 0.0 % |
+  | Monte Carlo P(DD > 15 %) | 87.6 % | 67.4 % | 2.7 % | 0.3 % |
+  | WF fuera de muestra BTC | −3.1 % (243 tr.) | +0.4 % (171) | −1.3 % (78) | −1.6 % (55) |
+  | WF fuera de muestra ETH | −2.8 % (271) | −4.9 % (188) | +4.0 % (68) | +12.4 % (52) |
+
+- **Veredicto**: **ambas refutadas** con los criterios fijados de antemano.
+  - #3 (1h): no mejora nada relevante; con costos ×2 salta el kill igual que la base.
+  - #4 (4h): DSR 0.55 < 0.95, walk-forward de BTC negativo, con costos ×2 el beneficio
+    queda en cero y solo 52–55 trades fuera de muestra por símbolo.
+  - Lo que **sí** hizo el filtro: bajar el riesgo de cola (P(DD > 15 %) de 2.7 % a 0.3 %
+    en 4h) y apagarse en los tramos bajistas (6 de 26 ventanas sin operar). Es un efecto
+    sobre el riesgo, no un edge.
+  - ⚠️ El +12.4 % de ETH 4h es justo el tipo de resultado aislado que la bitácora existe
+    para no perseguir: 52 trades, un solo símbolo, elegido después de ver los datos.
+    Probarlo solo en ETH sería una prueba NUEVA (#5) y debería registrarse antes.
+  - Efecto de calentar las ventanas de train: el walk-forward de la base cambió poco
+    respecto de #1/#2 (p. ej. ETH 4h de +1.7 % a +4.0 %); las conclusiones de #1/#2 no cambian.
 
 ---
 
@@ -133,4 +159,4 @@ Segunda corrida: **9/9 OK** contra la testnet real. Dejó a la vista un último 
 - **1d**: ~2 800 barras por símbolo. Los parámetros están en barras (EMA 100 = 100 días).
   Ojo: el warmup del walk-forward del workflow sería 91 barras (3 meses) y la estrategia
   necesita 131–200 (`TrendFollowing.warmup_bars`): habría que fijarlo explícitamente.
-- ~~Filtro de régimen de mercado (media de 200 días)~~ → en curso como #3/#4.
+- ~~Filtro de régimen de mercado (media de 200 días)~~ → #3/#4, refutadas.
