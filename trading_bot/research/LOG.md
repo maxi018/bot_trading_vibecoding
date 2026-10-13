@@ -186,7 +186,40 @@ el número tiene que saber que hubo 10.
   resultados.** Si #7/#8 dieran positivos en ambos símbolos, eso no los aprueba: solo
   justificaría pre-registrar una prueba nueva con más activos (más trades por
   diversificación, no por más parámetros).
-- **Resultado**: *(pendiente)*
+- **Resultado** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38484302647);
+  2 830 velas diarias por símbolo, Deflated Sharpe con 9 pruebas):
+
+  | | **#7 base 1d** | **#8 filtro 200d 1d** | **#9 reversión 1d** |
+  |---|---|---|---|
+  | Backtest | +10.0 % (CAGR 1.2 %) | +12.7 % (CAGR 1.6 %) | +0.4 % |
+  | Sharpe · PF | 0.37 · 1.73 | 0.50 · 2.71 | 0.03 · 1.02 |
+  | Max DD | 7.4 % | 3.7 % | 7.2 % |
+  | Trades | 29 | 27 | 143 |
+  | Deflated Sharpe | 0.31 | 0.45 | 0.08 |
+  | Costos ×2 | +5.7 % | +11.7 % | −0.3 % |
+  | Monte Carlo P(DD > 15 %) | 0.07 % | 0.00 % | 0.11 % |
+  | WF fuera de muestra BTC | +10.4 % (24 tr.)¹ | +10.6 % (23)¹ | −0.5 % (72) |
+  | WF fuera de muestra ETH | +3.4 % (29)¹ | +13.2 % (26)¹ | +5.8 % (67) |
+
+  ¹ **Walk-forward sin optimizar** (ver Hallazgos): en 1d, el trend following no llega a
+  5 trades en un año de train con ninguna combinación, así que en casi todas las ventanas
+  se usó en silencio la primera de la grilla (EMA 10/100). Es fuera de muestra de verdad,
+  pero de un parámetro fijo, no de una optimización. Corregido; la próxima corrida usa
+  los parámetros del TOML en esas ventanas y lo avisa.
+
+- **Veredicto**: **las tres refutadas** con los criterios fijados de antemano.
+  - #9 (reversión 1d): DSR 0.08, walk-forward de BTC negativo, con costos ×2 pierde y no
+    llega a 100 trades fuera de muestra por símbolo. Confirma #5/#6: no hay edge.
+  - #7 y #8 (trend following 1d): DSR 0.31 y 0.45 < 0.95, y 23–29 trades. Fallan
+    exactamente donde lo avisó el pre-registro: **no hay muestra para aprobar nada**.
+  - Pero #8 es lo primero que **no muere** en ninguno de los otros tests: sobrevive
+    costos ×2 casi intacto (+11.7 %), walk-forward positivo en ambos símbolos, DD 3.7 % y
+    el backtest (EMA 20/100) coincide con el walk-forward (EMA 10/100). Con 27 trades eso
+    puede ser suerte, y la regla de antemano dice qué hacer: **no se aprueba; justifica
+    pre-registrar una prueba nueva con más activos** (más trades por diversificación).
+  - Ojo con el número: CAGR 1.6 % con DD 3.7 % está por debajo de la tasa libre de riesgo.
+    El sizing actual arriesga muy poco por trade; escalarlo no crea edge, solo amplifica
+    lo que haya (o no haya).
 
 ---
 
@@ -233,10 +266,20 @@ Segunda corrida: **9/9 OK** contra la testnet real. Dejó a la vista un último 
   menor al mínimo de orden (imposible de proteger con stop). Ahora la cantidad se
   redondea a 12 decimales antes de mandarla.
 
+Con velas diarias (#7–#9):
+
+- **Walk-forward sin optimizar, en silencio**: una combinación necesita ≥ 5 trades en
+  train para competir. Si ninguna llegaba, quedaba elegida la PRIMERA de la grilla y el
+  reporte no decía nada (con 1d pasó en 24–27 de 27 ventanas del trend following). Ahora
+  esas ventanas usan los parámetros del TOML, quedan marcadas y la salida avisa cuántas
+  fueron. Lo mismo en el dashboard, donde además ese `-inf` rompía la respuesta JSON.
+
 ## Próximas ideas (sin correr; cada una suma 1 al contador)
 
-- **1d**: ~2 800 barras por símbolo. Los parámetros están en barras (EMA 100 = 100 días).
-  Ojo: el warmup del walk-forward del workflow sería 91 barras (3 meses) y la estrategia
-  necesita 131–200 (`TrendFollowing.warmup_bars`): habría que fijarlo explícitamente.
+- ~~**1d**~~ → #7–#9, refutadas (el warmup lo resolvía ya el arreglo de #3/#4).
+- **Trend following 1d + filtro 200d en una canasta de ~10 cripto líquidas**: la única
+  pista viva (#8). Más activos = más trades sin tocar parámetros. Necesita definir el
+  universo ANTES (p. ej. top por volumen al inicio de cada año, para no elegir con el
+  diario del lunes) y probar que el risk engine maneja bien la correlación entre ellas.
 - ~~Filtro de régimen de mercado (media de 200 días)~~ → #3/#4, refutadas.
 - ~~Reversión a la media intradiaria (RSI 2)~~ → #5/#6, refutadas.

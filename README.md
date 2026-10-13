@@ -21,8 +21,9 @@ que cualquier ejecución: ante la duda, no opera.
 
 - **Infraestructura**: lista para paper; para live falta correr `python -m quantbot testnet-check`
   con una key de testnet (ver [deployment](trading_bot/README.md#7-deployment-en-producción)).
-- **Estrategia**: ninguna de las probadas tiene edge: trend following (con y sin filtro de
-  200 días) y reversión a la media, en 1h y 4h — 6 pruebas, 6 refutadas
-  ([detalle](trading_bot/research/LOG.md)). No usar con capital real.
+- **Estrategia**: ninguna de las probadas pasa los criterios: trend following (con y sin
+  filtro de 200 días) y reversión a la media, en 1h, 4h y 1d — 9 pruebas, 9 refutadas
+  ([detalle](trading_bot/research/LOG.md)). La única pista viva (trend following diario
+  con filtro) tiene muy pocos trades para concluir nada. No usar con capital real.
 
 Historial: el proyecto empezó dentro de `maxi018/backend_lumax` y se movió acá con todos sus commits.
