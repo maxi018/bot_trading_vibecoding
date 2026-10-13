@@ -25,7 +25,7 @@ el número tiene que saber que hubo 10.
   stop 2.5 ATR tiene edge en BTC/ETH spot 1h.
 - **Refuta**: walk-forward fuera de muestra ≤ 0 o muerte con costos ×2.
 - **Datos**: Binance spot, 2019-01 → 2026-09, 67 861 velas por símbolo, SHA-256 verificado.
-- **Resultado** ([run](https://github.com/maxi018/backend_lumax/actions/runs/38339532921)):
+- **Resultado** ([run](https://github.com/maxi018/backend_lumax/actions/runs/38339532921), en el repo anterior):
 
   | | |
   |---|---|
@@ -41,7 +41,7 @@ el número tiene que saber que hubo 10.
 - **Hipótesis**: en 1h el ruido y los costos se comen la señal; en 4h la tendencia
   domina. Mismos parámetros del TOML (en barras, o sea horizontes 4× más largos).
 - **Refuta**: igual que #1.
-- **Resultado** ([run](https://github.com/maxi018/backend_lumax/actions/runs/38340385772)):
+- **Resultado** ([run](https://github.com/maxi018/backend_lumax/actions/runs/38340385772), en el repo anterior):
 
   | | |
   |---|---|

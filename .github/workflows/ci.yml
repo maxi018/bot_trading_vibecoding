@@ -1,5 +1,4 @@
 # CI de quantbot: bot (Python), dashboard (React) y empaquetado (run.sh + Docker).
-# El resto del repo (NestJS) no se toca acá.
 name: CI
 
 on:

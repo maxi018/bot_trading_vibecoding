@@ -92,8 +92,10 @@ if [[ ! -x "$VENV/bin/python" ]]; then
 fi
 if [[ ! -f "$STAMP" || "$BOT/pyproject.toml" -nt "$STAMP" ]]; then
   info "Instalando quantbot[$EXTRAS]"
-  "$VENV/bin/pip" install -q --upgrade pip
-  "$VENV/bin/pip" install -q -e "${BOT}[$EXTRAS]"
+  # Un venv creado con uv no trae pip: lo instalamos en vez de fallar.
+  "$VENV/bin/python" -m pip --version >/dev/null 2>&1 || "$VENV/bin/python" -m ensurepip --upgrade >/dev/null
+  "$VENV/bin/python" -m pip install -q --upgrade pip
+  "$VENV/bin/python" -m pip install -q -e "${BOT}[$EXTRAS]"
   touch "$STAMP"
 fi
 
