@@ -106,7 +106,7 @@ jobs:
       - name: Resumen
         run: |
           { echo "### Datos ($TIMEFRAMES, desde $START)"; echo '```'; cat download.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: market-data
           path: trading_bot/data/*.csv
@@ -134,7 +134,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -e .
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: market-data
           path: trading_bot/data
@@ -158,7 +158,7 @@ jobs:
             echo "### $TF con costos x2 (si acá muere, el edge eran los costos)"
             echo '```'; cat "results/backtest_${TF}_stress2.txt"; echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: backtest-results-${{ matrix.timeframe }}
           path: trading_bot/results/
@@ -184,7 +184,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: pip install -e .
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v6
         with:
           name: market-data
           path: trading_bot/data
