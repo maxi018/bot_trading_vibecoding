@@ -4,6 +4,7 @@ import { LiveConnection, useLive, wsUrl, type LiveState } from "./api/live";
 import { ModeBadge, StatusPill } from "./components/Badges";
 import { Controls } from "./components/Controls";
 import { ToastProvider } from "./components/Toasts";
+import { HistoryPage } from "./pages/History";
 import { Login } from "./pages/Login";
 import { ChartPage } from "./pages/Chart";
 import { Overview } from "./pages/Overview";
@@ -103,6 +104,8 @@ function Terminal({ token }: { token: string }) {
       <main className={live.stale ? "is-stale" : ""}>
         {page === "overview" ? (
           <Overview live={live} />
+        ) : page === "history" ? (
+          <HistoryPage conn={conn} symbols={o?.symbols ?? []} />
         ) : page === "positions" ? (
           <PositionsPage live={live} />
         ) : page === "chart" ? (

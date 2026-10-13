@@ -116,3 +116,20 @@ export interface Candle {
   close: number;
   volume: number;
 }
+
+export interface Trade {
+  id: number;
+  symbol: string;
+  side: "long" | "short";
+  qty: number;
+  entry_ts: number;
+  exit_ts: number;
+  entry_price: number;
+  exit_price: number;
+  pnl: number;
+  fees: number;
+  return_pct: number;
+  exit_reason: string;
+  slippage_bps: number | null;
+  expected_slippage_bps: number;
+}

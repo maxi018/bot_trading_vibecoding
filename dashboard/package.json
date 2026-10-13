@@ -13,7 +13,8 @@
   "dependencies": {
     "lightweight-charts": "5.2.1",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "recharts": "3.10.1"
   },
   "devDependencies": {
     "@testing-library/react": "16.3.3",
