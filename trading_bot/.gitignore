@@ -6,8 +6,9 @@ venv/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
-state/
-data/
-results/
+# Solo los directorios de la RAÍZ (sin anclar, 'data/' ignoraba quantbot/data/)
+/state/
+/data/
+/results/
 config/live.toml
 .env
