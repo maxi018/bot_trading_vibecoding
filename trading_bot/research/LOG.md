@@ -15,7 +15,7 @@ el número tiene que saber que hubo 10.
 4. **Nada pasa a paper** sin: Deflated Sharpe ≥ 0.95, walk-forward fuera de muestra
    positivo en cada símbolo, sobrevivir costos ×2, y ≥ 100 trades fuera de muestra.
 
-**Pruebas acumuladas: 4** (todas corren en el workflow → `TRIALS_PRIOR = 0`)
+**Pruebas acumuladas: 6** (todas corren en el workflow → `TRIALS_PRIOR = 0`)
 
 ---
 
@@ -108,6 +108,33 @@ el número tiene que saber que hubo 10.
     Probarlo solo en ETH sería una prueba NUEVA (#5) y debería registrarse antes.
   - Efecto de calentar las ventanas de train: el walk-forward de la base cambió poco
     respecto de #1/#2 (p. ej. ETH 4h de +1.7 % a +4.0 %); las conclusiones de #1/#2 no cambian.
+
+## #5 y #6 — Reversión a la media: comprar caídas dentro de una tendencia alcista (1h y 4h) · 2026-10-13
+
+*Pre-registrado: este texto se commitea ANTES de escribir el código y de ver resultados.*
+
+- **Hipótesis**: las 4 pruebas de trend following (comprar fuerza) no tienen edge. La
+  familia opuesta: dentro de una tendencia alcista de largo plazo, las caídas bruscas de
+  corto plazo tienden a rebotar. Comprar el sobrevendido y salir en el rebote.
+- **Reglas** (estrategia nueva `mean_reversion`; solo largos; mismo risk engine):
+  - **Tendencia**: solo con el cierre diario sobre su media de 200 días (el mismo filtro
+    de #3/#4, por activo, días UTC completos).
+  - **Entrada**: RSI de 2 períodos (Wilder) sobre los cierres de las barras < **10**.
+  - **Salida**: cierre de barra **por encima de su media simple de 5 barras** (el rebote),
+    o **10 barras** sin rebote (time stop), o el filtro de tendencia se apaga.
+  - **Stop nativo** siempre: entrada − **2.5 ATR(14)**, fijo (sin trailing).
+  - Tras una salida puede reentrar en la próxima señal: no espera nada extra.
+- **Parámetros fijados ANTES**: RSI 2 / umbral 10 / salida SMA 5 / 10 barras / 2.5 ATR /
+  200 días. **No se prueban otros valores** sin registrarlos acá como prueba nueva. (El
+  walk-forward optimiza dentro de una grilla chica, umbral ∈ {5, 10, 15} y salida ∈
+  {3, 5, 8}, y descuenta esas combinaciones en su propio Deflated Sharpe.)
+- **Pruebas**: 1h y 4h = 2 nuevas → contador **6**. El workflow corre base, #3/#4 y esta
+  lado a lado, y el Deflated Sharpe se calcula con 6.
+- **Refuta**: los criterios de las Reglas (DSR < 0.95, walk-forward fuera de muestra ≤ 0
+  en algún símbolo, muere con costos ×2, < 100 trades fuera de muestra). Ojo: la
+  reversión opera seguido y gana poco por trade, así que el test de **costos ×2** es el
+  que más la amenaza.
+- **Resultado**: *(pendiente)*
 
 ---
 
