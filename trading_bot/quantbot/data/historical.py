@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import csv
 import heapq
+import itertools
 import logging
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
@@ -93,7 +94,7 @@ def validate_bars(
     """Ordena, deduplica y reporta huecos/saltos. Devuelve barras limpias + reporte."""
     report = report or DataReport(bars[0].symbol if bars else "?")
     # Detectar desorden antes de ordenar (síntoma de un pipeline roto)
-    report.out_of_order = sum(1 for a, b in zip(bars, bars[1:], strict=False) if b.ts < a.ts)
+    report.out_of_order = sum(1 for a, b in itertools.pairwise(bars) if b.ts < a.ts)
     clean: list[Bar] = []
     for b in sorted(bars, key=lambda x: x.ts):
         if clean and b.ts == clean[-1].ts:

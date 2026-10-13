@@ -49,8 +49,12 @@ class DemoFeed:
         self._series = [
             iter(
                 generate_bars(
-                    sym, total_bars, tf_ms, start_price * (1 if i == 0 else 0.06 * (i + 1)),
-                    start_ts=start_ts, seed=seed + i,
+                    sym,
+                    total_bars,
+                    tf_ms,
+                    start_price * (1 if i == 0 else 0.06 * (i + 1)),
+                    start_ts=start_ts,
+                    seed=seed + i,
                 )
             )
             for i, sym in enumerate(symbols)

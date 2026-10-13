@@ -173,7 +173,7 @@ class ResilientWebSocketFeed:
 
 
 def _http_get_json(url: str, timeout: float = 10.0) -> Any:
-    with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310
+    with urllib.request.urlopen(url, timeout=timeout) as resp:
         return json.loads(resp.read())
 
 
