@@ -435,3 +435,21 @@ async def test_reserved_balances_are_not_bot_positions():
         assert await ex.fetch_positions() == {"BTC/USDT": pytest.approx(0.25)}
     finally:
         await ex.close()
+
+
+async def test_float_noise_does_not_lose_a_step_when_truncated(binance):
+    """Visto en la testnet real: 1.00036 - 1.00018 = 0.000179999… y Binance trunca a
+    0.00017, dejando polvo que no se puede proteger con stop (menor al mínimo de orden).
+    Lo mismo con dos fills parciales: 0.00007 + 0.00011."""
+    ex, fake = binance
+    fake.routes["v3/order"] = lambda p: ORDER_ACK
+    await ex.create_order(
+        _order(
+            side=Side.SELL,
+            type=OrderType.STOP_MARKET,
+            stop_price=60000.0,
+            qty=0.00007 + 0.00011,
+        )
+    )
+    ((_, sent),) = fake.sent("v3/order")
+    assert sent["quantity"] == "0.00018"

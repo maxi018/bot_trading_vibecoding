@@ -91,6 +91,13 @@ Primera corrida de `testnet-check` contra la testnet REAL de Binance (8/9 OK):
   mayor que la que el bot puede armar (o no la puede valuar), no arranca.
 - **Warmup con velas de mainnet** en live+testnet: ahora usa las de la testnet.
 
+Segunda corrida: **9/9 OK** contra la testnet real. Dejó a la vista un último detalle:
+
+- **Ruido de punto flotante + truncado del exchange**: `0.00007 + 0.00011` da
+  `0.000179999…` y Binance trunca al step → 0.00017. Una salida dejaba polvo de un step,
+  menor al mínimo de orden (imposible de proteger con stop). Ahora la cantidad se
+  redondea a 12 decimales antes de mandarla.
+
 ## Próximas ideas (sin correr; cada una suma 1 al contador)
 
 - **1d**: ~2 800 barras por símbolo. Los parámetros están en barras (EMA 100 = 100 días).

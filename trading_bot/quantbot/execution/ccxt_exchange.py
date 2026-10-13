@@ -41,6 +41,11 @@ _STATUS = {
 }
 
 
+def _clean_qty(qty: float) -> float:
+    """Quita el ruido de punto flotante antes de que el exchange trunque al step."""
+    return round(qty, 12)
+
+
 class CcxtExchange:
     def __init__(self, cfg: ExchangeConfig, secrets: Secrets) -> None:
         try:
@@ -133,6 +138,9 @@ class CcxtExchange:
     # ---------------------------------------------------------------- API
     async def create_order(self, order: Order) -> Order:
         self._symbols.add(order.symbol)
+        # El exchange TRUNCA al step: 0.00007 + 0.00011 = 0.000179999… -> 0.00017, y la
+        # salida deja polvo imposible de proteger con stop (menor al mínimo de orden).
+        qty = _clean_qty(order.qty)
         params: dict[str, Any] = {"clientOrderId": order.client_order_id}
         # reduceOnly solo existe en derivados; en spot el exchange lo rechaza.
         # En spot, "reduce-only" lo garantiza el OrderManager (qty <= posición).
@@ -145,7 +153,7 @@ class CcxtExchange:
         if order.type is OrderType.STOP_MARKET:
             params["triggerPrice"] = order.stop_price
             raw = await self._call(
-                "create_order", order.symbol, "market", order.side.value, order.qty, None, params
+                "create_order", order.symbol, "market", order.side.value, qty, None, params
             )
         else:
             raw = await self._call(
@@ -153,7 +161,7 @@ class CcxtExchange:
                 order.symbol,
                 "limit" if order.type is OrderType.LIMIT else "market",
                 order.side.value,
-                order.qty,
+                qty,
                 order.price,
                 params,
             )
