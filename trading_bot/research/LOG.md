@@ -15,8 +15,8 @@ el número tiene que saber que hubo 10.
 4. **Nada pasa a paper** sin: Deflated Sharpe ≥ 0.95, walk-forward fuera de muestra
    positivo en cada símbolo, sobrevivir costos ×2, y ≥ 100 trades fuera de muestra.
 
-**Pruebas acumuladas: 10** (#1–#9 corren en `backtest-real-data.yml`; #10 en
-`backtest-basket.yml`, que usa `TRIALS_PRIOR = 9`)
+**Pruebas acumuladas: 11** (#1–#9 corren en `backtest-real-data.yml`; #10 y #11 en
+`backtest-basket.yml`, que usa 11 en total)
 
 ---
 
@@ -314,6 +314,31 @@ el número tiene que saber que hubo 10.
   - **Qué NO se hace ahora**: achicar el sizing o subir el kill hasta que pase. Eso es
     ajustar la regla al resultado. Si se prueba un sizing distinto, es una prueba nueva
     (#11), pre-registrada, y suma al contador.
+
+## #11 — La canasta de #10 con presupuesto de riesgo de portafolio · 2026-10-14
+
+*Pre-registrado: este texto se commitea ANTES de correr nada.*
+
+- **Problema que ataca**: en #10 el backtest continuo tocó el kill switch (DD 15 %). Los
+  límites por moneda (1 % de riesgo por trade, 20 % por posición, 15 % de vol objetivo)
+  se calibraron con 2 monedas; con 10 correlacionadas, la suma es demasiado.
+- **Qué cambia — una sola regla**: el riesgo **total** de la canasta tiene que ser el
+  mismo que tenían las pruebas con 2 monedas. Con 10, cada moneda recibe 2/10 = **0.2×**
+  de lo que recibía una de esas 2:
+  - `max_risk_per_trade` 0.01 → **0.002**
+  - `max_position_pct` 0.20 → **0.04**
+  - `target_vol_annual` 0.15 → **0.03**
+  - Todo lo demás idéntico a #10 (`config/experiments/11_basket_budget.toml`): mismo
+    universo, misma estrategia, mismo kill switch (15 %), mismo tope de correlación (40 %).
+- **Pruebas**: 1 nueva → contador **11**. El workflow corre #10 y #11 juntos con 11.
+- **Refuta**: los mismos criterios de #10, sin cambios.
+- ⚠️ **Lo que se espera, escrito de antemano**: achicar las posiciones escala ganancias y
+  pérdidas por igual, así que el Sharpe — y con él el **Deflated Sharpe, el criterio que
+  falló en #10 — casi no se mueve**. Lo esperable es: DD y retorno ~5× más chicos, sin
+  kill switch, y **refutada otra vez por Deflated Sharpe**. Lo que esta prueba sí
+  contesta: si con un riesgo pensado para la canasta la estrategia es *operable* (no se
+  apaga sola). No puede convertir a #10 en un edge, y no se va a leer como si lo hiciera.
+- **Resultado**: *(pendiente)*
 
 ---
 
