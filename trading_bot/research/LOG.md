@@ -15,7 +15,8 @@ el número tiene que saber que hubo 10.
 4. **Nada pasa a paper** sin: Deflated Sharpe ≥ 0.95, walk-forward fuera de muestra
    positivo en cada símbolo, sobrevivir costos ×2, y ≥ 100 trades fuera de muestra.
 
-**Pruebas acumuladas: 9** (todas corren en el workflow → `TRIALS_PRIOR = 0`)
+**Pruebas acumuladas: 10** (#1–#9 corren en `backtest-real-data.yml`; #10 en
+`backtest-basket.yml`, que usa `TRIALS_PRIOR = 9`)
 
 ---
 
@@ -220,6 +221,47 @@ el número tiene que saber que hubo 10.
   - Ojo con el número: CAGR 1.6 % con DD 3.7 % está por debajo de la tasa libre de riesgo.
     El sizing actual arriesga muy poco por trade; escalarlo no crea edge, solo amplifica
     lo que haya (o no haya).
+
+## #10 — Trend following diario + filtro de 200 días en una canasta de 10 monedas · 2026-10-14
+
+*Pre-registrado: este texto se commitea ANTES de escribir el código y de bajar los datos.*
+
+- **Hipótesis**: si lo de #8 es un edge y no suerte, tiene que aparecer en otras monedas.
+  #8 no se pudo evaluar por falta de muestra (27 trades); 10 monedas dan ~10× más trades
+  **sin tocar un solo parámetro**.
+- **Estrategia**: `config/experiments/03_sma200.toml` **sin cambios**, en 1d. Risk engine
+  sin cambios: 20 % máx. por posición, apalancamiento bruto 1.0 y, sobre todo, **40 % máx.
+  en activos correlacionados** (correlación > 0.7 cuenta como un solo bloque). En cripto
+  casi todo está correlacionado: ese límite va a mandar, y está bien que mande.
+- **Universo** (regla fijada antes de ver un solo dato, sin mirar el futuro):
+  - Candidatas: los pares spot contra USDT que Binance tenía listados en diciembre de
+    2018 (lista en el workflow), sin stablecoins.
+  - Ranking: volumen en USDT de diciembre de 2018 (Σ volumen × cierre de las velas
+    diarias). Entran las **10 primeras** y quedan **fijas todo el período**: no se eligen
+    las ganadoras de hoy. El cálculo lo hace el workflow con los datos de Binance.
+  - Cambios de ticker 1:1 se empalman como una sola serie: BCHABC → BCH (28/11/2019) y
+    EOS → A (Vaulta, 26–28/5/2025).
+  - Si una moneda deja de cotizar (p. ej. BSV, deslistada el 22/4/2019), la posición se
+    **cierra al último cierre diario** con costos normales (Binance avisa ~1 semana
+    antes). No se la saca de la canasta para atrás: eso sería sesgo de supervivencia.
+- **Período**: igual que todo lo anterior, operando 2019-01 → 2026-09. Diciembre de 2018
+  se usa solo para el ranking.
+- **Pruebas**: 1 nueva → contador **10**. El Deflated Sharpe se calcula con 10.
+- **Refuta** — los criterios de las Reglas, adaptados a una canasta (adaptación decidida
+  ahora, antes de los datos):
+  - Deflated Sharpe < 0.95.
+  - Walk-forward de la **canasta** (ventanas de tiempo, todas las monedas juntas) ≤ 0.
+  - Muere con costos ×2.
+  - < 100 trades fuera de muestra (sumando monedas).
+  - **Concentración**: si una sola moneda explica más del 50 % de la ganancia fuera de
+    muestra, no es un edge de la estrategia sino de esa moneda. (Reemplaza a "positivo en
+    cada símbolo", que con ~20 trades por moneda sería ruido.)
+- ⚠️ **Advertencias escritas de antemano**:
+  - Un universo de 2018 envejece: varias de esas monedas cayeron mucho desde entonces.
+    Es a propósito (es lo que se podía saber en 2019) y juega **en contra** del resultado.
+  - Aunque pase todo, el retorno va a ser chico con este sizing. Pasar significaría
+    "hay algo para llevar a paper", no "a ganar plata".
+- **Resultado**: *(pendiente)*
 
 ---
 
