@@ -15,8 +15,8 @@ el número tiene que saber que hubo 10.
 4. **Nada pasa a paper** sin: Deflated Sharpe ≥ 0.95, walk-forward fuera de muestra
    positivo en cada símbolo, sobrevivir costos ×2, y ≥ 100 trades fuera de muestra.
 
-**Pruebas acumuladas: 10** (#1–#9 corren en `backtest-real-data.yml`; #10 en
-`backtest-basket.yml`, que usa `TRIALS_PRIOR = 9`)
+**Pruebas acumuladas: 11** (#1–#9 corren en `backtest-real-data.yml`; #10 y #11 en
+`backtest-basket.yml`, que usa 11 en total)
 
 ---
 
@@ -314,6 +314,58 @@ el número tiene que saber que hubo 10.
   - **Qué NO se hace ahora**: achicar el sizing o subir el kill hasta que pase. Eso es
     ajustar la regla al resultado. Si se prueba un sizing distinto, es una prueba nueva
     (#11), pre-registrada, y suma al contador.
+
+## #11 — La canasta de #10 con presupuesto de riesgo de portafolio · 2026-10-14
+
+*Pre-registrado: este texto se commitea ANTES de correr nada.*
+
+- **Problema que ataca**: en #10 el backtest continuo tocó el kill switch (DD 15 %). Los
+  límites por moneda (1 % de riesgo por trade, 20 % por posición, 15 % de vol objetivo)
+  se calibraron con 2 monedas; con 10 correlacionadas, la suma es demasiado.
+- **Qué cambia — una sola regla**: el riesgo **total** de la canasta tiene que ser el
+  mismo que tenían las pruebas con 2 monedas. Con 10, cada moneda recibe 2/10 = **0.2×**
+  de lo que recibía una de esas 2:
+  - `max_risk_per_trade` 0.01 → **0.002**
+  - `max_position_pct` 0.20 → **0.04**
+  - `target_vol_annual` 0.15 → **0.03**
+  - Todo lo demás idéntico a #10 (`config/experiments/11_basket_budget.toml`): mismo
+    universo, misma estrategia, mismo kill switch (15 %), mismo tope de correlación (40 %).
+- **Pruebas**: 1 nueva → contador **11**. El workflow corre #10 y #11 juntos con 11.
+- **Refuta**: los mismos criterios de #10, sin cambios.
+- ⚠️ **Lo que se espera, escrito de antemano**: achicar las posiciones escala ganancias y
+  pérdidas por igual, así que el Sharpe — y con él el **Deflated Sharpe, el criterio que
+  falló en #10 — casi no se mueve**. Lo esperable es: DD y retorno ~5× más chicos, sin
+  kill switch, y **refutada otra vez por Deflated Sharpe**. Lo que esta prueba sí
+  contesta: si con un riesgo pensado para la canasta la estrategia es *operable* (no se
+  apaga sola). No puede convertir a #10 en un edge, y no se va a leer como si lo hiciera.
+- **Resultado** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38492377093);
+  Deflated Sharpe con 11 pruebas; #10 corrió al lado y dio idéntico, salvo el DSR):
+
+  | | #10 (límites de siempre) | **#11 (presupuesto de canasta)** |
+  |---|---|---|
+  | Backtest | +8.9 %, **kill switch** | +3.4 % (CAGR 0.4 %), **sin kill switch** |
+  | Sharpe · PF | 0.20 · 1.26 | 0.28 · 1.31 |
+  | Max DD | 15.2 % | **3.5 %** |
+  | Trades | 78 | 140 |
+  | Deflated Sharpe | 0.14 | 0.20 |
+  | Costos ×2 | +5.5 %, kill switch | +1.6 %, sin kill switch |
+  | Monte Carlo P(DD > 15 %) | 6.8 % | **0.0 %** (DD p95 4.0 %) |
+  | Walk-forward | +43.6 %, Sharpe 0.46, DD 14.3 %, 212 tr. | +9.4 %, Sharpe 0.49, DD 3.0 %, 210 tr. |
+  | WF: mejor moneda | 39 % de la ganancia | 34 % |
+
+- **Veredicto**: **refutada**, exactamente como lo anticipó el pre-registro.
+  - ✖ Deflated Sharpe 0.20 (backtest) y 0.06 (walk-forward), lejos de 0.95. Lo que se
+    escribió de antemano se cumplió: achicar las posiciones casi no mueve el Sharpe
+    (walk-forward 0.46 → 0.49), así que no puede arreglar el criterio que falló.
+  - ✔ Sí contestó la pregunta que se podía contestar: con el riesgo pensado para la
+    canasta **la estrategia es operable**. Sin kill switch con costos ×1 ni ×2, DD de
+    3.5 % y P(DD > 15 %) prácticamente nula. Walk-forward positivo, 210 trades y sin
+    concentración (34 %), igual que #10.
+  - El precio: rinde 0.4–1.4 % anual. Operable, pero sin evidencia de edge y por debajo
+    de la tasa libre de riesgo.
+  - **Conclusión de la serie #7–#11**: el trend following diario con filtro de 200 días
+    gana algo fuera de muestra en BTC, ETH y en la canasta, pero en ninguna versión se
+    distingue de la suerte. Más variantes del mismo sistema solo inflarían el contador.
 
 ---
 
