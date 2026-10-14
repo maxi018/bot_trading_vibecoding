@@ -205,8 +205,22 @@ el número tiene que saber que hubo 10.
   ¹ **Walk-forward sin optimizar** (ver Hallazgos): en 1d, el trend following no llega a
   5 trades en un año de train con ninguna combinación, así que en casi todas las ventanas
   se usó en silencio la primera de la grilla (EMA 10/100). Es fuera de muestra de verdad,
-  pero de un parámetro fijo, no de una optimización. Corregido; la próxima corrida usa
-  los parámetros del TOML en esas ventanas y lo avisa.
+  pero de un parámetro fijo, no de una optimización.
+
+  **Walk-forward corregido** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38487321158)):
+  las ventanas sin trades suficientes usan ahora los parámetros del TOML (EMA 20/100) y
+  quedan marcadas.
+
+  | | #7 BTC | #7 ETH | #8 BTC | #8 ETH |
+  |---|---|---|---|---|
+  | Ventanas sin optimizar | 27 de 27 | 25 de 27 | 25 de 27 | 24 de 27 |
+  | Retorno fuera de muestra | +6.6 % | +8.4 % | +9.1 % | +12.7 % |
+  | Trades · PF | 22 · 1.83 | 29 · 1.66 | 24 · 2.62 | 27 · 2.53 |
+  | Deflated Sharpe | 0.04 | 0.04 | 0.07 | 0.12 |
+
+  Sigue positivo en los cuatro con parámetros del TOML (20/100) en vez de 10/100: el
+  resultado no depende de ese detalle. **El veredicto no cambia**: casi no hubo
+  optimización (es un test de parámetros fijos) y faltan trades.
 
 - **Veredicto**: **las tres refutadas** con los criterios fijados de antemano.
   - #9 (reversión 1d): DSR 0.08, walk-forward de BTC negativo, con costos ×2 pierde y no
