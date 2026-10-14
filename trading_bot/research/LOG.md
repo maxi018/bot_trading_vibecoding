@@ -338,7 +338,34 @@ el número tiene que saber que hubo 10.
   kill switch, y **refutada otra vez por Deflated Sharpe**. Lo que esta prueba sí
   contesta: si con un riesgo pensado para la canasta la estrategia es *operable* (no se
   apaga sola). No puede convertir a #10 en un edge, y no se va a leer como si lo hiciera.
-- **Resultado**: *(pendiente)*
+- **Resultado** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38492377093);
+  Deflated Sharpe con 11 pruebas; #10 corrió al lado y dio idéntico, salvo el DSR):
+
+  | | #10 (límites de siempre) | **#11 (presupuesto de canasta)** |
+  |---|---|---|
+  | Backtest | +8.9 %, **kill switch** | +3.4 % (CAGR 0.4 %), **sin kill switch** |
+  | Sharpe · PF | 0.20 · 1.26 | 0.28 · 1.31 |
+  | Max DD | 15.2 % | **3.5 %** |
+  | Trades | 78 | 140 |
+  | Deflated Sharpe | 0.14 | 0.20 |
+  | Costos ×2 | +5.5 %, kill switch | +1.6 %, sin kill switch |
+  | Monte Carlo P(DD > 15 %) | 6.8 % | **0.0 %** (DD p95 4.0 %) |
+  | Walk-forward | +43.6 %, Sharpe 0.46, DD 14.3 %, 212 tr. | +9.4 %, Sharpe 0.49, DD 3.0 %, 210 tr. |
+  | WF: mejor moneda | 39 % de la ganancia | 34 % |
+
+- **Veredicto**: **refutada**, exactamente como lo anticipó el pre-registro.
+  - ✖ Deflated Sharpe 0.20 (backtest) y 0.06 (walk-forward), lejos de 0.95. Lo que se
+    escribió de antemano se cumplió: achicar las posiciones casi no mueve el Sharpe
+    (walk-forward 0.46 → 0.49), así que no puede arreglar el criterio que falló.
+  - ✔ Sí contestó la pregunta que se podía contestar: con el riesgo pensado para la
+    canasta **la estrategia es operable**. Sin kill switch con costos ×1 ni ×2, DD de
+    3.5 % y P(DD > 15 %) prácticamente nula. Walk-forward positivo, 210 trades y sin
+    concentración (34 %), igual que #10.
+  - El precio: rinde 0.4–1.4 % anual. Operable, pero sin evidencia de edge y por debajo
+    de la tasa libre de riesgo.
+  - **Conclusión de la serie #7–#11**: el trend following diario con filtro de 200 días
+    gana algo fuera de muestra en BTC, ETH y en la canasta, pero en ninguna versión se
+    distingue de la suerte. Más variantes del mismo sistema solo inflarían el contador.
 
 ---
 
