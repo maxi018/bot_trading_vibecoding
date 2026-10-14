@@ -63,6 +63,23 @@ class WalkForwardResult:
     def n_fallback(self) -> int:
         return sum(w.fallback for w in self.windows)
 
+    def oos_by_symbol(self) -> dict[str, tuple[int, float]]:
+        """Trades y PnL fuera de muestra por símbolo, de mayor a menor PnL."""
+        out: dict[str, tuple[int, float]] = {}
+        for t in (t for w in self.windows for t in w.test.trades):
+            n, pnl = out.get(t.symbol, (0, 0.0))
+            out[t.symbol] = (n + 1, pnl + t.pnl)
+        return dict(sorted(out.items(), key=lambda kv: -kv[1][1]))
+
+    def top_symbol_share(self) -> float | None:
+        """Fracción de la ganancia fuera de muestra que explica el mejor símbolo (None si
+        no hubo ganancia). Cerca de 1: el "edge" es de esa moneda, no de la estrategia."""
+        by_sym = self.oos_by_symbol()
+        total = sum(pnl for _, pnl in by_sym.values())
+        if total <= 0 or not by_sym:
+            return None
+        return max(pnl for _, pnl in by_sym.values()) / total
+
     def param_stability(self) -> dict[str, list[Any]]:
         out: dict[str, list[Any]] = {}
         for w in self.windows:

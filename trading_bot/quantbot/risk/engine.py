@@ -243,6 +243,12 @@ class RiskEngine:
         st = self._state(symbol)
         st.last_data_ts = max(st.last_data_ts, ts)
 
+    def forget_symbol(self, symbol: str) -> None:
+        """El símbolo dejó de cotizar (deslistado): que su silencio no frene al resto.
+        Sin esto, el breaker de datos viejos quedaba disparado para siempre."""
+        self._symbols.pop(symbol, None)
+        self._halts.pop(f"stale:{symbol}", None)
+
     def mark_data_stale(self, source: str, reason: str = "") -> None:
         """Llamado por el feed al perder la conexión: no operar a ciegas."""
         if source not in self._stale_sources:

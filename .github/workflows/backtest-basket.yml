@@ -1,0 +1,119 @@
+# Experimento #10: trend following diario + filtro de 200 días sobre una CANASTA de monedas.
+#
+# El universo se elige con datos del PASADO (volumen en USDT de diciembre de 2018) y queda
+# fijo: nada de elegir las ganadoras de hoy. Ver trading_bot/research/LOG.md (#10).
+#
+# - Candidatas: pares spot contra USDT listados en Binance a fines de 2018 (sin
+#   stablecoins). Las que se listaron después no tienen volumen en diciembre de 2018 y
+#   quedan afuera solas.
+# - "A>B": el mismo activo con un cambio de ticker 1:1 (se empalma como una sola serie).
+# - Una moneda que deja de cotizar (BSV en 2019) se cierra a su último precio.
+name: Backtest canasta (experimento 10)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/backtest-basket.yml"
+      - "trading_bot/quantbot/**"
+      - "!trading_bot/quantbot/api/**"
+      - "!trading_bot/quantbot/app.py"
+      - "!trading_bot/quantbot/data/demo_feed.py"
+      - "!trading_bot/quantbot/data/websocket_feed.py"
+      - "!trading_bot/quantbot/execution/ccxt_exchange.py"
+      - "trading_bot/config/experiments/03_sma200.toml"
+
+permissions:
+  contents: read
+
+# shell explícito = bash -eo pipefail: sin esto, `python ... | tee` que falla da verde.
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: backtest-basket-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CANDIDATES: >-
+    BTC/USDT,ETH/USDT,BNB/USDT,XRP/USDT,EOS/USDT>A/USDT,LTC/USDT,BCHABC/USDT>BCH/USDT,
+    BCHSV/USDT,TRX/USDT,ADA/USDT,XLM/USDT,NEO/USDT,ETC/USDT,IOTA/USDT,QTUM/USDT,
+    ONT/USDT,ICX/USDT,VET/USDT,NULS/USDT,LINK/USDT,WAVES/USDT,ZIL/USDT,ZEC/USDT,
+    IOST/USDT,OMG/USDT,THETA/USDT,ENJ/USDT,DASH/USDT,XMR/USDT,BAT/USDT
+  CONFIG: config/experiments/03_sma200.toml
+  # #1–#9 corren en backtest-real-data.yml; esta es la prueba #10.
+  TRIALS: "10"
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  basket:
+    name: Canasta 1d (universo dic-2018) + costos x2 + Monte Carlo + walk-forward
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: trading_bot
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install -e .
+      - name: Descargar candidatas (1d, desde 2018-12)
+        run: |
+          ALL=$(echo "$CANDIDATES" | tr -d ' ' | tr '>' ',')
+          python -m quantbot download --symbol "$ALL" --timeframe 1d --start 2018-12 \
+            --out-dir data/raw --allow-missing | tee download.txt
+      - name: Elegir el universo (volumen de dic-2018) y empalmar tickers
+        id: universe
+        run: |
+          python -m quantbot universe --candidates "$(echo "$CANDIDATES" | tr -d ' ')" \
+            --data-dir data/raw --out-dir data/basket --timeframe 1d \
+            --rank-from 2018-12 --rank-to 2019-01 --trade-from 2019-01 --top 10 \
+            --github-output "$GITHUB_OUTPUT" | tee universe.txt
+      - name: Backtest (canasta completa)
+        env:
+          SYMBOLS: ${{ steps.universe.outputs.symbols }}
+          DATA: ${{ steps.universe.outputs.data }}
+        run: |
+          mkdir -p results
+          python -m quantbot backtest --config "$CONFIG" --timeframe 1d \
+            --data "$DATA" --symbol "$SYMBOLS" --trials "$TRIALS" --montecarlo \
+            --out results/basket_1d.json | tee results/basket_1d.txt
+          python -m quantbot backtest --config "$CONFIG" --timeframe 1d \
+            --data "$DATA" --symbol "$SYMBOLS" --trials "$TRIALS" --stress 2.0 \
+            | tee results/basket_1d_stress2.txt
+      - name: Walk-forward (train 1 año, test 3 meses, todas las monedas juntas)
+        env:
+          SYMBOLS: ${{ steps.universe.outputs.symbols }}
+          DATA: ${{ steps.universe.outputs.data }}
+        run: |
+          # Misma grilla y ventanas que #7/#8; el warmup nunca baja de lo que pide la estrategia.
+          python -m quantbot walkforward --config "$CONFIG" --timeframe 1d \
+            --data "$DATA" --symbol "$SYMBOLS" \
+            --grid "fast_ema=10,20,30;slow_ema=100,200" \
+            --train 365 --test 91 --warmup 91 | tee results/basket_1d_wf.txt
+      - name: Resumen
+        if: always()
+        run: |
+          {
+            echo "### Universo (Deflated Sharpe con $TRIALS pruebas)"
+            echo '```'; cat universe.txt 2>/dev/null || true; echo '```'
+            echo "### Backtest canasta 1d"
+            echo '```'; cat results/basket_1d.txt 2>/dev/null || true; echo '```'
+            echo "### Costos x2"
+            echo '```'; cat results/basket_1d_stress2.txt 2>/dev/null || true; echo '```'
+            echo "### Walk-forward"
+            echo '```'; tail -n 80 results/basket_1d_wf.txt 2>/dev/null || true; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: basket-results
+          path: |
+            trading_bot/results/
+            trading_bot/download.txt
+            trading_bot/universe.txt
+          retention-days: 90

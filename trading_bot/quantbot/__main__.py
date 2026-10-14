@@ -109,6 +109,8 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         print(f"  vetos por motivo: {top}")
     if res.killed:
         print(f"  🚨 KILL SWITCH durante el backtest: {res.kill_reason}")
+    if res.delisted:
+        print(f"  dejaron de cotizar (cierre forzado al último precio): {', '.join(res.delisted)}")
     if args.montecarlo and res.trade_returns:
         mc = monte_carlo(
             res.trade_returns, res.trade_weights, kill_threshold=cfg.risk.total_drawdown_kill
@@ -152,6 +154,14 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
     print("\n  Estabilidad de parámetros:", wf.param_stability())
     print("\n=== OUT-OF-SAMPLE CONCATENADO ===")
     print(wf.oos_report.pretty())
+    by_sym = wf.oos_by_symbol()
+    if len(by_sym) > 1:
+        print("\n=== FUERA DE MUESTRA POR SÍMBOLO ===")
+        for sym, (n, pnl) in by_sym.items():
+            print(f"  {sym:<14} {n:>4} trades  PnL {pnl:>+12.2f}")
+        share = wf.top_symbol_share()
+        if share is not None:
+            print(f"  El mejor símbolo explica el {share:.0%} de la ganancia fuera de muestra")
     return 0
 
 
@@ -185,11 +195,72 @@ def cmd_download(args: argparse.Namespace) -> int:
             res = download_klines(sym, args.timeframe, tf_ms, start, end, args.out_dir)
         except DownloadError as exc:
             print(f"[datos] ✖ {sym}: {exc}")
-            ok = False
+            ok = ok and args.allow_missing and "no hay datos" in str(exc)
             continue
         print(f"[datos] {res.summary()}")
         ok = ok and res.report.ok
     return 0 if ok else 1
+
+
+def _month_ms(month: str) -> int:
+    from datetime import UTC, datetime
+
+    from .data.binance_vision import parse_month
+
+    y, m = parse_month(month)
+    return int(datetime(y, m, 1, tzinfo=UTC).timestamp() * 1000)
+
+
+def cmd_universe(args: argparse.Namespace) -> int:
+    """Arma la canasta: empalma tickers, rankea por volumen PASADO y escribe los CSV."""
+    from .data.historical import load_csv, write_csv
+    from .data.universe import rank_by_quote_volume, splice_bars
+
+    tf_ms = timeframe_to_ms(args.timeframe)
+    data_dir, out_dir = Path(args.data_dir), Path(args.out_dir)
+
+    def raw(sym: str) -> str:
+        return sym.replace("/", "").upper()
+
+    series: dict[str, list[Bar]] = {}
+    for spec in filter(None, (c.strip() for c in args.candidates.split(","))):
+        chain = [t.strip() for t in spec.split(">")]  # "BCHABC/USDT>BCH/USDT": mismo activo
+        parts = []
+        for ticker in chain:
+            path = data_dir / f"{raw(ticker)}_{args.timeframe}.csv"
+            if path.exists():
+                bars, report = load_csv(path, ticker, tf_ms)
+                if not report.ok:
+                    sys.exit(f"Datos inválidos en {path}: {report.summary()}")
+                parts.append(bars)
+        if parts:
+            series[chain[0]] = splice_bars(parts, chain[0])
+            if len(parts) > 1:
+                print(f"[universo] {spec}: {len(parts)} tramos empalmados")
+    rank_from, rank_to = _month_ms(args.rank_from), _month_ms(args.rank_to)
+    ranking = rank_by_quote_volume(series, rank_from, rank_to)
+    chosen = [sym for sym, vol in ranking[: args.top] if vol > 0]
+    print(f"\n=== RANKING por volumen en USDT ({args.rank_from} a {args.rank_to}, sin incluir) ===")
+    for i, (sym, vol) in enumerate(ranking, 1):
+        mark = "✔" if sym in chosen else " "
+        print(f"  {mark} {i:>2}. {sym:<14} {vol / 1e6:>12,.1f} M USDT")
+    if len(chosen) < args.top:
+        sys.exit(f"Solo {len(chosen)} candidatas con volumen: se pedían {args.top}")
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    trade_from = _month_ms(args.trade_from)
+    paths = []
+    for sym in chosen:
+        bars = [b for b in series[sym] if b.ts_open >= trade_from]
+        path = out_dir / f"{raw(sym)}_{args.timeframe}.csv"
+        write_csv(path, bars)
+        paths.append(str(path))
+        last = bars[-1].ts_open if bars else 0
+        print(f"[universo] {sym}: {len(bars)} velas, última apertura {last}")
+    if args.github_output:
+        with open(args.github_output, "a", encoding="utf-8") as f:
+            f.write(f"symbols={','.join(chosen)}\ndata={','.join(paths)}\n")
+    return 0
 
 
 def cmd_testnet_check(args: argparse.Namespace) -> int:
@@ -284,6 +355,23 @@ def main(argv: list[str] | None = None) -> int:
     dl.add_argument("--end", help="AAAA-MM (default: último mes completo)")
     dl.add_argument("--out-dir", default="./data")
 
+    dl.add_argument(
+        "--allow-missing",
+        action="store_true",
+        help="Un símbolo sin ningún dato (todavía no listado) no es error",
+    )
+
+    un = sub.add_parser("universe", help="Canasta: ranking por volumen pasado + empalmes")
+    un.add_argument("--candidates", required=True, help="BTC/USDT,BCHABC/USDT>BCH/USDT,...")
+    un.add_argument("--data-dir", default="./data")
+    un.add_argument("--out-dir", required=True)
+    un.add_argument("--timeframe", default="1d")
+    un.add_argument("--rank-from", required=True, help="AAAA-MM (incluido)")
+    un.add_argument("--rank-to", required=True, help="AAAA-MM (excluido)")
+    un.add_argument("--trade-from", required=True, help="AAAA-MM: los CSV arrancan acá")
+    un.add_argument("--top", type=int, default=10)
+    un.add_argument("--github-output", help="Archivo $GITHUB_OUTPUT (symbols=, data=)")
+
     for mode in ("paper", "live", "demo"):
         sp = sub.add_parser(mode)
         sp.add_argument("--config", default=None)
@@ -311,6 +399,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_validate_data(args)
         case "download":
             return cmd_download(args)
+        case "universe":
+            return cmd_universe(args)
         case "paper" | "live" | "demo":
             return cmd_run(args, args.cmd)
         case "reset-kill-switch":

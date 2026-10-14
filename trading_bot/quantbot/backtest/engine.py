@@ -56,6 +56,7 @@ class BacktestResult:
     alerts: list[str] = field(default_factory=list)
     veto_reasons: dict[str, int] = field(default_factory=dict)  # motivo -> cantidad
     params: dict[str, Any] = field(default_factory=dict)
+    delisted: list[str] = field(default_factory=list)  # dejaron de cotizar: cierre forzado
 
 
 class Backtester:
@@ -103,6 +104,10 @@ class Backtester:
 
             eq_ts: list[int] = []
             eq: list[float] = []
+            # Un símbolo cuyos datos terminan antes que el resto dejó de cotizar.
+            last_ts = {b.symbol: b.ts for b in self.bars}
+            end_ts = self.bars[-1].ts if self.bars else 0
+            delisted: list[str] = []
             for group in group_by_ts(self.bars):
                 ts_open = max(b.ts_open for b in group)
                 clock.advance_to(max(clock.now_ms(), ts_open))
@@ -110,6 +115,12 @@ class Backtester:
                     await exchange.process_bar(bar)
                 clock.advance_to(group[0].ts)
                 await core.on_bars(group)
+                for bar in group:
+                    if last_ts[bar.symbol] == bar.ts < end_ts:
+                        om.set_desired_stop(bar.symbol, None)
+                        await exchange.delist(bar.symbol, bar.close)
+                        risk.forget_symbol(bar.symbol)
+                        delisted.append(bar.symbol)
                 if group[0].ts >= self.trading_start_ts:
                     eq_ts.append(group[0].ts)
                     eq.append(portfolio.equity)
@@ -143,6 +154,7 @@ class Backtester:
             alerts=[a.title for a in alerter.sent],
             veto_reasons=dict(veto_reasons.most_common()),
             params=self.params,
+            delisted=delisted,
         )
 
 
