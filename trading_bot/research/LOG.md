@@ -275,7 +275,45 @@ el número tiene que saber que hubo 10.
     Es a propósito (es lo que se podía saber en 2019) y juega **en contra** del resultado.
   - Aunque pase todo, el retorno va a ser chico con este sizing. Pasar significaría
     "hay algo para llevar a paper", no "a ganar plata".
-- **Resultado**: *(pendiente)*
+- **Resultado** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38488430216);
+  Deflated Sharpe con 10 pruebas):
+  - **Universo** (volumen de dic-2018): BTC, ETH, XRP, BCH (BCHABC→BCH), EOS (→A), BSV
+    (deslistada en abril de 2019, cerrada a su último precio), TRX, BNB, ADA, XLM.
+    Quedaron afuera por poco LTC (11.º), NEO y ETC. Las candidatas listadas después de
+    2018 (LINK, ZEC, DASH, XMR, etc.) tuvieron volumen 0 y no entraron, como estaba previsto.
+
+  | | Backtest (EMA 20/100 fija) | Walk-forward de la canasta |
+  |---|---|---|
+  | Retorno | +8.9 % (CAGR 1.1 %), **kill switch a 15 % de DD** | **+43.6 % (CAGR 5.6 %)** |
+  | Sharpe · PF | 0.20 · 1.26 | 0.46 · 1.44 |
+  | Max DD | 15.2 % | 14.3 % |
+  | Trades | 78 | **212** |
+  | Deflated Sharpe | 0.15 | 0.05 |
+  | Costos ×2 | +5.5 %, kill switch igual | — |
+  | Monte Carlo P(DD > 15 %) | 6.8 % | — |
+
+  Walk-forward por moneda: XLM +1 530, ETH +1 198, XRP +1 126, BTC +739, ADA +362,
+  BNB −31, TRX −94, EOS −250, BCH −659. **El mejor explica el 39 %** de la ganancia.
+  Vetos: 1 245 por kill switch ya activado y 56 por límites de exposición (el tope de
+  correlación mandó, como se esperaba).
+
+- **Veredicto**: **refutada** por el criterio principal, pero es lo más cerca que se llegó.
+  - ✖ Deflated Sharpe 0.15 (backtest) y 0.05 (walk-forward), lejísimos de 0.95. Un
+    Sharpe de ~0.46 en ~7 años no se distingue de la suerte después de 10 pruebas.
+  - ✔ Walk-forward de la canasta positivo, 212 trades fuera de muestra (> 100) y sin
+    concentración (39 % < 50 %): 5 de 9 monedas ganan. Es la primera vez que pasan
+    estos tres.
+  - ⚠️ Costos ×2: sigue positivo (+5.5 %), pero en el backtest continuo **salta el kill
+    switch** (DD 15 %) con costos ×1 y ×2, y el bot queda apagado el resto del período
+    (por eso +8.9 % contra +43.6 % del walk-forward, que arranca limpio cada ventana y
+    no hereda el kill). En la vida real eso habría sido "bot frenado hasta que un humano
+    lo reactive".
+  - Lectura: con 10 monedas correlacionadas, el riesgo agregado de la canasta es mayor
+    que el de BTC/ETH solos (Monte Carlo: 6.8 % de chance de tocar el kill). El edge,
+    si existe, es chico y el sizing actual no está pensado para una canasta.
+  - **Qué NO se hace ahora**: achicar el sizing o subir el kill hasta que pase. Eso es
+    ajustar la regla al resultado. Si se prueba un sizing distinto, es una prueba nueva
+    (#11), pre-registrada, y suma al contador.
 
 ---
 
