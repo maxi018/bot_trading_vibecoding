@@ -153,6 +153,37 @@ class PaperExchange:
         for o in fresh:
             await self._process_order_on_bar(o, bar, armed_at_open=False)
 
+    async def delist(self, symbol: str, price: float) -> None:
+        """Backtest: el símbolo deja de cotizar (deslistado). Se cancelan sus órdenes y la
+        posición se cierra al último precio, con costos de taker: el exchange avisa antes
+        y en la vida real se sale en esos días. Sin esto la posición quedaba congelada a
+        su último precio para siempre, escondiendo la pérdida."""
+        for o in self.orders.values():
+            if o.symbol == symbol and not o.is_terminal:
+                o.status = OrderStatus.CANCELED
+        qty = self.positions.get(symbol, 0.0)
+        if abs(qty) <= 1e-12:
+            return
+        side = Side.SELL if qty > 0 else Side.BUY
+        now = self.clock.now_ms()
+        order = Order(
+            f"delist-{symbol}-{now}",
+            symbol,
+            side,
+            OrderType.MARKET,
+            abs(qty),
+            reduce_only=True,
+            status=OrderStatus.OPEN,
+            created_ts=now,
+            decision_price=price,
+            tag="delist",
+        )
+        self.orders[order.client_order_id] = order
+        px = self.costs.taker_price(side, price)
+        await self._execute(
+            order, FillQuote(px, abs(qty), False, self.costs.fee(px * abs(qty), False)), now
+        )
+
     def on_book(self, book: OrderBook) -> None:
         self.books[book.symbol] = book
         if book.mid:

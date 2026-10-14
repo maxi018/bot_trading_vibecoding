@@ -24,6 +24,9 @@ from ..strategy import build_strategy
 from .engine import BacktestResult, run_backtest
 from .metrics import PerformanceReport, performance_report, simple_returns
 
+# Con menos trades en train el Sharpe es ruido: esa combinación no compite.
+MIN_TRAIN_TRADES = 5
+
 
 def param_grid(grid: Mapping[str, Sequence[Any]]) -> list[dict[str, Any]]:
     keys = list(grid)
@@ -44,6 +47,9 @@ class WindowResult:
     best_params: dict[str, Any]
     train_sharpe: float
     test: BacktestResult
+    # Ninguna combinación llegó a MIN_TRAIN_TRADES en train: no hubo optimización y se
+    # usaron los parámetros del TOML (fijados de antemano), no los de la grilla.
+    fallback: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +58,27 @@ class WalkForwardResult:
     oos_equity: list[float]
     oos_report: PerformanceReport
     n_trials: int
+
+    @property
+    def n_fallback(self) -> int:
+        return sum(w.fallback for w in self.windows)
+
+    def oos_by_symbol(self) -> dict[str, tuple[int, float]]:
+        """Trades y PnL fuera de muestra por símbolo, de mayor a menor PnL."""
+        out: dict[str, tuple[int, float]] = {}
+        for t in (t for w in self.windows for t in w.test.trades):
+            n, pnl = out.get(t.symbol, (0, 0.0))
+            out[t.symbol] = (n + 1, pnl + t.pnl)
+        return dict(sorted(out.items(), key=lambda kv: -kv[1][1]))
+
+    def top_symbol_share(self) -> float | None:
+        """Fracción de la ganancia fuera de muestra que explica el mejor símbolo (None si
+        no hubo ganancia). Cerca de 1: el "edge" es de esa moneda, no de la estrategia."""
+        by_sym = self.oos_by_symbol()
+        total = sum(pnl for _, pnl in by_sym.values())
+        if total <= 0 or not by_sym:
+            return None
+        return max(pnl for _, pnl in by_sym.values()) / total
 
     def param_stability(self) -> dict[str, list[Any]]:
         out: dict[str, list[Any]] = {}
@@ -77,6 +104,7 @@ def walk_forward(
     combos = [p for p in param_grid(grid) if _valid(p, cfg)]
     if not combos:
         raise ValueError("Grilla vacía tras filtrar combinaciones inválidas")
+    toml_params = {k: getattr(cfg.strategy, k) for k in grid}
     ppy = periods_per_year(cfg.strategy.timeframe)
     windows: list[WindowResult] = []
     oos_returns: list[float] = []
@@ -92,18 +120,22 @@ def walk_forward(
         train_from = ts_sorted[max(0, start - warmup_bars)]
         train = [b for b in bars if train_from <= b.ts <= tr1]
         # 1) Optimizar SOLO en train
-        best: tuple[float, dict[str, Any]] = (-math.inf, combos[0])
+        # Si NINGUNA combinación opera lo suficiente en train, no hay nada que optimizar.
+        # Antes quedaba elegida en silencio la primera de la grilla (con 1d pasaba en casi
+        # todas las ventanas): ahora se usan los parámetros del TOML y la ventana se marca.
+        best: tuple[float, dict[str, Any]] = (-math.inf, toml_params)
         for params in combos:
             n_trials += 1
             res = run_backtest(cfg, train, strategy_params=params, trading_start_ts=tr0)
-            score = res.report.sharpe if res.report.n_trades >= 5 else -math.inf
+            score = res.report.sharpe if res.report.n_trades >= MIN_TRAIN_TRADES else -math.inf
             if score > best[0]:
                 best = (score, params)
+        fallback = best[0] == -math.inf
         # 2) Evaluar en test con warmup (indicadores calientes, sin operar)
         warm_from = ts_sorted[max(0, start + train_bars - warmup_bars)]
         test_slice = [b for b in bars if warm_from <= b.ts <= te1]
         test_res = run_backtest(cfg, test_slice, strategy_params=best[1], trading_start_ts=te0)
-        windows.append(WindowResult(tr0, te0, te1, best[1], best[0], test_res))
+        windows.append(WindowResult(tr0, te0, te1, best[1], best[0], test_res, fallback))
         oos_returns.extend(simple_returns(test_res.equity))
         start += test_bars
 

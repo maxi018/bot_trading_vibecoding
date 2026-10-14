@@ -11,6 +11,7 @@ import asyncio
 import dataclasses
 import itertools
 import logging
+import math
 import multiprocessing
 import time
 import traceback
@@ -151,7 +152,9 @@ def run_job(cfg_dict: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
                     "test_start": w.test_start,
                     "test_end": w.test_end,
                     "params": w.best_params,
-                    "train_sharpe": w.train_sharpe,
+                    # -inf (ninguna combinación operó en train) no es JSON válido
+                    "train_sharpe": w.train_sharpe if math.isfinite(w.train_sharpe) else None,
+                    "fallback": w.fallback,
                     "test_sharpe": w.test.report.sharpe,
                     "test_max_dd": w.test.report.max_drawdown,
                 }

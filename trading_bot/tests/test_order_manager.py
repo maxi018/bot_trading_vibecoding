@@ -157,7 +157,7 @@ async def test_token_bucket_limits_rate():
     assert not tb.try_acquire()
 
 
-async def test_failed_exit_restores_last_stop(setup):
+async def test_failed_exit_restores_last_stop(setup, caplog):
     """Spot: se libera el stop para salir; si la salida IOC no se llena, el stop vuelve."""
     om, ex, pf, _, px = setup
     om.set_desired_stop("BTC/USDT", px * 0.95)
@@ -180,6 +180,35 @@ async def test_failed_exit_restores_last_stop(setup):
     live = [x for x in ex.orders.values() if x.type is OrderType.STOP_MARKET and not x.is_terminal]
     assert len(live) == 1 and live[0].stop_price == pytest.approx(px * 0.95)
     assert pf.position("BTC/USDT").qty == pytest.approx(1.0)
+    assert "Re-colocando último stop" in caplog.text  # salida fallida: merece aviso
+
+
+async def test_pending_exit_gets_a_provisional_stop_without_a_false_alarm(setup, caplog):
+    """Backtest: la salida se ejecuta en la apertura siguiente. Mientras tanto la posición
+    lleva stop (nunca desnuda), pero eso NO es "una salida que no se llenó": antes cada
+    trade logueaba un WARNING falso y los logs de 1h llegaban a 60 000 líneas."""
+    om, ex, _, _, px = setup
+    om.set_desired_stop("BTC/USDT", px * 0.95)
+    await om.submit(buy(px))
+    om.set_desired_stop("BTC/USDT", None)  # señal FLAT
+    await om.release_stop("BTC/USDT")
+    pending = await om.submit(
+        OrderRequest(
+            "BTC/USDT",
+            Side.SELL,
+            1.0,
+            OrderType.LIMIT,
+            price=px * 2,
+            reduce_only=True,
+            tif=TimeInForce.GTC,
+            decision_price=px,
+        )
+    )
+    assert pending.status is OrderStatus.OPEN
+    await om.sync_protective_stop("BTC/USDT")
+    live = [x for x in ex.orders.values() if x.type is OrderType.STOP_MARKET and not x.is_terminal]
+    assert len(live) == 1 and live[0].stop_price == pytest.approx(px * 0.95)
+    assert "Re-colocando" not in caplog.text
 
 
 async def test_stop_sync_waits_for_fills_in_flight(setup):

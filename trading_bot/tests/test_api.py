@@ -484,3 +484,23 @@ async def test_walkforward_on_a_data_file_end_to_end(data_client):
     assert res["n_trials"] == 6  # el Deflated Sharpe del backtest principal también las cuenta
     assert set(wf["param_stability"]) == {"fast_ema"}
     assert "sharpe" in wf["oos_report"] and len(wf["oos_equity"]) > 10
+
+
+async def test_walkforward_window_without_train_trades_is_valid_json(client):
+    """train_sharpe = -inf (ninguna combinación operó en train) no es JSON válido."""
+    body = {
+        "synthetic_bars": 1500,
+        "mc_sims": 200,
+        "walkforward": {
+            "grid": {"fast_ema": [10, 30], "slow_ema": [60, 200]},
+            "train": 200,
+            "test": 300,
+            "warmup": 400,
+        },
+    }
+    r = await client.post("/api/backtests", headers=AUTH, json=body)
+    assert r.status_code == 202, r.text
+    job = await wait_job(client, r.json()["id"])
+    assert job["status"] == "done", job["error"]
+    windows = job["result"]["walkforward"]["windows"]
+    assert windows and all(w["fallback"] and w["train_sharpe"] is None for w in windows)

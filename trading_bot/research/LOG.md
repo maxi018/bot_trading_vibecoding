@@ -15,7 +15,8 @@ el número tiene que saber que hubo 10.
 4. **Nada pasa a paper** sin: Deflated Sharpe ≥ 0.95, walk-forward fuera de muestra
    positivo en cada símbolo, sobrevivir costos ×2, y ≥ 100 trades fuera de muestra.
 
-**Pruebas acumuladas: 6** (todas corren en el workflow → `TRIALS_PRIOR = 0`)
+**Pruebas acumuladas: 10** (#1–#9 corren en `backtest-real-data.yml`; #10 en
+`backtest-basket.yml`, que usa `TRIALS_PRIOR = 9`)
 
 ---
 
@@ -161,6 +162,159 @@ el número tiene que saber que hubo 10.
   - Ni ajustar parámetros tiene sentido acá: todas las combinaciones de la grilla pierden.
     La familia "comprar sobrevendido en barras intradiarias" queda descartada para BTC/ETH.
 
+## #7, #8 y #9 — Las mismas tres estrategias en velas diarias (1d) · 2026-10-13
+
+*Pre-registrado: este texto se commitea ANTES de correr nada con datos reales.*
+
+- **Hipótesis**: en 1h y 4h los costos y el ruido de corto plazo se comen la señal. En
+  velas diarias hay muchas menos operaciones (costos totales mucho menores) y el
+  movimiento por trade es mayor que el costo. Además, la reversión con RSI(2) es una
+  estrategia diseñada originalmente para velas diarias (Connors): en 1h/4h la probamos
+  fuera de su escala natural.
+- **Qué cambia**: solo el timeframe. Los TOML quedan idénticos, así que los parámetros (en
+  barras) pasan a ser días:
+  - **#7** base trend following: EMA 20/100 días, stop 2.5 ATR(14 días).
+  - **#8** + filtro de 200 días (#3/#4).
+  - **#9** reversión a la media (#5/#6): RSI(2) < 10, salida sobre SMA 5, time stop 10 días.
+  - Walk-forward: train 1 año (365 barras), test 3 meses (91), mismas grillas.
+- **Pruebas**: 3 nuevas → contador **9**. El workflow pasa a correr 1h, 4h y 1d con las
+  tres configs, y el Deflated Sharpe se calcula con 9.
+- **Refuta**: los criterios de las Reglas, sin cambios.
+- ⚠️ **Advertencia escrita de antemano — poder estadístico**: con ~2 800 velas por símbolo,
+  el trend following va a hacer del orden de **20 trades fuera de muestra por símbolo**
+  (lo vimos con datos sintéticos). El criterio de ≥ 100 trades es casi **inalcanzable por
+  diseño** para #7/#8; #9 puede rondarlo. **El criterio no se relaja después de ver los
+  resultados.** Si #7/#8 dieran positivos en ambos símbolos, eso no los aprueba: solo
+  justificaría pre-registrar una prueba nueva con más activos (más trades por
+  diversificación, no por más parámetros).
+- **Resultado** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38484302647);
+  2 830 velas diarias por símbolo, Deflated Sharpe con 9 pruebas):
+
+  | | **#7 base 1d** | **#8 filtro 200d 1d** | **#9 reversión 1d** |
+  |---|---|---|---|
+  | Backtest | +10.0 % (CAGR 1.2 %) | +12.7 % (CAGR 1.6 %) | +0.4 % |
+  | Sharpe · PF | 0.37 · 1.73 | 0.50 · 2.71 | 0.03 · 1.02 |
+  | Max DD | 7.4 % | 3.7 % | 7.2 % |
+  | Trades | 29 | 27 | 143 |
+  | Deflated Sharpe | 0.31 | 0.45 | 0.08 |
+  | Costos ×2 | +5.7 % | +11.7 % | −0.3 % |
+  | Monte Carlo P(DD > 15 %) | 0.07 % | 0.00 % | 0.11 % |
+  | WF fuera de muestra BTC | +10.4 % (24 tr.)¹ | +10.6 % (23)¹ | −0.5 % (72) |
+  | WF fuera de muestra ETH | +3.4 % (29)¹ | +13.2 % (26)¹ | +5.8 % (67) |
+
+  ¹ **Walk-forward sin optimizar** (ver Hallazgos): en 1d, el trend following no llega a
+  5 trades en un año de train con ninguna combinación, así que en casi todas las ventanas
+  se usó en silencio la primera de la grilla (EMA 10/100). Es fuera de muestra de verdad,
+  pero de un parámetro fijo, no de una optimización.
+
+  **Walk-forward corregido** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38487321158)):
+  las ventanas sin trades suficientes usan ahora los parámetros del TOML (EMA 20/100) y
+  quedan marcadas.
+
+  | | #7 BTC | #7 ETH | #8 BTC | #8 ETH |
+  |---|---|---|---|---|
+  | Ventanas sin optimizar | 27 de 27 | 25 de 27 | 25 de 27 | 24 de 27 |
+  | Retorno fuera de muestra | +6.6 % | +8.4 % | +9.1 % | +12.7 % |
+  | Trades · PF | 22 · 1.83 | 29 · 1.66 | 24 · 2.62 | 27 · 2.53 |
+  | Deflated Sharpe | 0.04 | 0.04 | 0.07 | 0.12 |
+
+  Sigue positivo en los cuatro con parámetros del TOML (20/100) en vez de 10/100: el
+  resultado no depende de ese detalle. **El veredicto no cambia**: casi no hubo
+  optimización (es un test de parámetros fijos) y faltan trades.
+
+- **Veredicto**: **las tres refutadas** con los criterios fijados de antemano.
+  - #9 (reversión 1d): DSR 0.08, walk-forward de BTC negativo, con costos ×2 pierde y no
+    llega a 100 trades fuera de muestra por símbolo. Confirma #5/#6: no hay edge.
+  - #7 y #8 (trend following 1d): DSR 0.31 y 0.45 < 0.95, y 23–29 trades. Fallan
+    exactamente donde lo avisó el pre-registro: **no hay muestra para aprobar nada**.
+  - Pero #8 es lo primero que **no muere** en ninguno de los otros tests: sobrevive
+    costos ×2 casi intacto (+11.7 %), walk-forward positivo en ambos símbolos, DD 3.7 % y
+    el backtest (EMA 20/100) coincide con el walk-forward (EMA 10/100). Con 27 trades eso
+    puede ser suerte, y la regla de antemano dice qué hacer: **no se aprueba; justifica
+    pre-registrar una prueba nueva con más activos** (más trades por diversificación).
+  - Ojo con el número: CAGR 1.6 % con DD 3.7 % está por debajo de la tasa libre de riesgo.
+    El sizing actual arriesga muy poco por trade; escalarlo no crea edge, solo amplifica
+    lo que haya (o no haya).
+
+## #10 — Trend following diario + filtro de 200 días en una canasta de 10 monedas · 2026-10-14
+
+*Pre-registrado: este texto se commitea ANTES de escribir el código y de bajar los datos.*
+
+- **Hipótesis**: si lo de #8 es un edge y no suerte, tiene que aparecer en otras monedas.
+  #8 no se pudo evaluar por falta de muestra (27 trades); 10 monedas dan ~10× más trades
+  **sin tocar un solo parámetro**.
+- **Estrategia**: `config/experiments/03_sma200.toml` **sin cambios**, en 1d. Risk engine
+  sin cambios: 20 % máx. por posición, apalancamiento bruto 1.0 y, sobre todo, **40 % máx.
+  en activos correlacionados** (correlación > 0.7 cuenta como un solo bloque). En cripto
+  casi todo está correlacionado: ese límite va a mandar, y está bien que mande.
+- **Universo** (regla fijada antes de ver un solo dato, sin mirar el futuro):
+  - Candidatas: los pares spot contra USDT que Binance tenía listados en diciembre de
+    2018 (lista en el workflow), sin stablecoins.
+  - Ranking: volumen en USDT de diciembre de 2018 (Σ volumen × cierre de las velas
+    diarias). Entran las **10 primeras** y quedan **fijas todo el período**: no se eligen
+    las ganadoras de hoy. El cálculo lo hace el workflow con los datos de Binance.
+  - Cambios de ticker 1:1 se empalman como una sola serie: BCHABC → BCH (28/11/2019) y
+    EOS → A (Vaulta, 26–28/5/2025).
+  - Si una moneda deja de cotizar (p. ej. BSV, deslistada el 22/4/2019), la posición se
+    **cierra al último cierre diario** con costos normales (Binance avisa ~1 semana
+    antes). No se la saca de la canasta para atrás: eso sería sesgo de supervivencia.
+- **Período**: igual que todo lo anterior, operando 2019-01 → 2026-09. Diciembre de 2018
+  se usa solo para el ranking.
+- **Pruebas**: 1 nueva → contador **10**. El Deflated Sharpe se calcula con 10.
+- **Refuta** — los criterios de las Reglas, adaptados a una canasta (adaptación decidida
+  ahora, antes de los datos):
+  - Deflated Sharpe < 0.95.
+  - Walk-forward de la **canasta** (ventanas de tiempo, todas las monedas juntas) ≤ 0.
+  - Muere con costos ×2.
+  - < 100 trades fuera de muestra (sumando monedas).
+  - **Concentración**: si una sola moneda explica más del 50 % de la ganancia fuera de
+    muestra, no es un edge de la estrategia sino de esa moneda. (Reemplaza a "positivo en
+    cada símbolo", que con ~20 trades por moneda sería ruido.)
+- ⚠️ **Advertencias escritas de antemano**:
+  - Un universo de 2018 envejece: varias de esas monedas cayeron mucho desde entonces.
+    Es a propósito (es lo que se podía saber en 2019) y juega **en contra** del resultado.
+  - Aunque pase todo, el retorno va a ser chico con este sizing. Pasar significaría
+    "hay algo para llevar a paper", no "a ganar plata".
+- **Resultado** ([run](https://github.com/maxi018/bot_trading_vibecoding/actions/runs/38488430216);
+  Deflated Sharpe con 10 pruebas):
+  - **Universo** (volumen de dic-2018): BTC, ETH, XRP, BCH (BCHABC→BCH), EOS (→A), BSV
+    (deslistada en abril de 2019, cerrada a su último precio), TRX, BNB, ADA, XLM.
+    Quedaron afuera por poco LTC (11.º), NEO y ETC. Las candidatas listadas después de
+    2018 (LINK, ZEC, DASH, XMR, etc.) tuvieron volumen 0 y no entraron, como estaba previsto.
+
+  | | Backtest (EMA 20/100 fija) | Walk-forward de la canasta |
+  |---|---|---|
+  | Retorno | +8.9 % (CAGR 1.1 %), **kill switch a 15 % de DD** | **+43.6 % (CAGR 5.6 %)** |
+  | Sharpe · PF | 0.20 · 1.26 | 0.46 · 1.44 |
+  | Max DD | 15.2 % | 14.3 % |
+  | Trades | 78 | **212** |
+  | Deflated Sharpe | 0.15 | 0.05 |
+  | Costos ×2 | +5.5 %, kill switch igual | — |
+  | Monte Carlo P(DD > 15 %) | 6.8 % | — |
+
+  Walk-forward por moneda: XLM +1 530, ETH +1 198, XRP +1 126, BTC +739, ADA +362,
+  BNB −31, TRX −94, EOS −250, BCH −659. **El mejor explica el 39 %** de la ganancia.
+  Vetos: 1 245 por kill switch ya activado y 56 por límites de exposición (el tope de
+  correlación mandó, como se esperaba).
+
+- **Veredicto**: **refutada** por el criterio principal, pero es lo más cerca que se llegó.
+  - ✖ Deflated Sharpe 0.15 (backtest) y 0.05 (walk-forward), lejísimos de 0.95. Un
+    Sharpe de ~0.46 en ~7 años no se distingue de la suerte después de 10 pruebas.
+  - ✔ Walk-forward de la canasta positivo, 212 trades fuera de muestra (> 100) y sin
+    concentración (39 % < 50 %): 5 de 9 monedas ganan. Es la primera vez que pasan
+    estos tres.
+  - ⚠️ Costos ×2: sigue positivo (+5.5 %), pero en el backtest continuo **salta el kill
+    switch** (DD 15 %) con costos ×1 y ×2, y el bot queda apagado el resto del período
+    (por eso +8.9 % contra +43.6 % del walk-forward, que arranca limpio cada ventana y
+    no hereda el kill). En la vida real eso habría sido "bot frenado hasta que un humano
+    lo reactive".
+  - Lectura: con 10 monedas correlacionadas, el riesgo agregado de la canasta es mayor
+    que el de BTC/ETH solos (Monte Carlo: 6.8 % de chance de tocar el kill). El edge,
+    si existe, es chico y el sizing actual no está pensado para una canasta.
+  - **Qué NO se hace ahora**: achicar el sizing o subir el kill hasta que pase. Eso es
+    ajustar la regla al resultado. Si se prueba un sizing distinto, es una prueba nueva
+    (#11), pre-registrada, y suma al contador.
+
 ---
 
 ## Hallazgos de infraestructura (no son pruebas, no suman al contador)
@@ -206,10 +360,25 @@ Segunda corrida: **9/9 OK** contra la testnet real. Dejó a la vista un último 
   menor al mínimo de orden (imposible de proteger con stop). Ahora la cantidad se
   redondea a 12 decimales antes de mandarla.
 
+Con velas diarias (#7–#9):
+
+- **Walk-forward sin optimizar, en silencio**: una combinación necesita ≥ 5 trades en
+  train para competir. Si ninguna llegaba, quedaba elegida la PRIMERA de la grilla y el
+  reporte no decía nada (con 1d pasó en 24–27 de 27 ventanas del trend following). Ahora
+  esas ventanas usan los parámetros del TOML, quedan marcadas y la salida avisa cuántas
+  fueron. Lo mismo en el dashboard, donde además ese `-inf` rompía la respuesta JSON.
+- **Alarma falsa en cada salida**: en backtest la salida se ejecuta en la apertura
+  siguiente; mientras tanto el bot re-coloca el stop (correcto: nunca desnuda) pero lo
+  logueaba como WARNING "una salida no se llenó". Eran miles de líneas por corrida (logs
+  de 1h de 60 000 líneas, resúmenes de 7 MB). Ahora solo avisa si la salida terminó sin
+  llenarse. No cambia ningún resultado.
+
 ## Próximas ideas (sin correr; cada una suma 1 al contador)
 
-- **1d**: ~2 800 barras por símbolo. Los parámetros están en barras (EMA 100 = 100 días).
-  Ojo: el warmup del walk-forward del workflow sería 91 barras (3 meses) y la estrategia
-  necesita 131–200 (`TrendFollowing.warmup_bars`): habría que fijarlo explícitamente.
+- ~~**1d**~~ → #7–#9, refutadas (el warmup lo resolvía ya el arreglo de #3/#4).
+- **Trend following 1d + filtro 200d en una canasta de ~10 cripto líquidas**: la única
+  pista viva (#8). Más activos = más trades sin tocar parámetros. Necesita definir el
+  universo ANTES (p. ej. top por volumen al inicio de cada año, para no elegir con el
+  diario del lunes) y probar que el risk engine maneja bien la correlación entre ellas.
 - ~~Filtro de régimen de mercado (media de 200 días)~~ → #3/#4, refutadas.
 - ~~Reversión a la media intradiaria (RSI 2)~~ → #5/#6, refutadas.

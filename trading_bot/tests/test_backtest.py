@@ -139,6 +139,57 @@ def test_walk_forward_uses_only_test_segments(cfg):
     assert param_grid({"a": [1, 2], "b": [3]}) == [{"a": 1, "b": 3}, {"a": 2, "b": 3}]
 
 
+def test_walk_forward_without_enough_train_trades_uses_toml_params_and_says_so(cfg):
+    """Regresión: si ninguna combinación llega a 5 trades en train, antes se elegía en
+    silencio la PRIMERA de la grilla (en 1d pasaba en casi todas las ventanas)."""
+    bars = generate_bars(n=1500, seed=11)
+    grid = {"fast_ema": [10, 30], "slow_ema": [60, 200]}
+    wf = walk_forward(cfg, bars, grid, train_bars=150, test_bars=300, warmup_bars=400)
+    toml = {"fast_ema": cfg.strategy.fast_ema, "slow_ema": cfg.strategy.slow_ema}
+    assert toml not in param_grid(grid)  # si cayera en la grilla, el test no distinguiría
+    assert wf.windows and wf.n_fallback == len(wf.windows)
+    for w in wf.windows:
+        assert w.fallback and w.train_sharpe == -math.inf
+        assert w.best_params == toml
+
+    ok = walk_forward(cfg, bars, grid, train_bars=900, test_bars=300, warmup_bars=200)
+    assert not any(w.fallback for w in ok.windows if w.train_sharpe > -math.inf)
+
+
+def test_delisted_symbol_is_closed_at_its_last_price_and_does_not_halt_the_rest(cfg):
+    """Una moneda que deja de cotizar (BSV en 2019): antes su posición quedaba congelada
+    a su último precio y el breaker de datos viejos frenaba a TODA la canasta."""
+    cfg = dataclasses.replace(
+        cfg, strategy=dataclasses.replace(cfg.strategy, symbols=("BTC/USDT", "ETH/USDT"))
+    )
+    btc = generate_bars("BTC/USDT", 3000, H, seed=1)
+    eth = generate_bars("ETH/USDT", 3000, H, seed=101)[:1800]  # se deslista con posición
+    res = run_backtest(cfg, btc + eth)
+    assert res.delisted == ["ETH/USDT"]
+    assert any(t.symbol == "ETH/USDT" and t.ts == eth[-1].ts for t in res.trades)
+    after = [t for t in res.trades if t.symbol == "BTC/USDT" and t.ts > eth[-1].ts]
+    alone = [t for t in run_backtest(cfg, btc).trades if t.ts > eth[-1].ts]
+    assert after and len(after) == len(alone)  # BTC sigue operando como si nada
+
+
+def test_walk_forward_reports_oos_pnl_by_symbol_and_concentration(cfg):
+    cfg = dataclasses.replace(
+        cfg, strategy=dataclasses.replace(cfg.strategy, symbols=("BTC/USDT", "ETH/USDT"))
+    )
+    bars = generate_bars("BTC/USDT", 3000, H, seed=11) + generate_bars("ETH/USDT", 3000, H, seed=12)
+    wf = walk_forward(cfg, bars, {"fast_ema": [10, 20]}, 1200, 600, 400)
+    by_sym = wf.oos_by_symbol()
+    trades = [t for w in wf.windows for t in w.test.trades]
+    assert set(by_sym) == {t.symbol for t in trades}
+    assert sum(n for n, _ in by_sym.values()) == len(trades)
+    total = sum(p for _, p in by_sym.values())
+    assert total == pytest.approx(sum(t.pnl for t in trades))
+    pnls = [p for _, p in by_sym.values()]
+    assert pnls == sorted(pnls, reverse=True)
+    share = wf.top_symbol_share()
+    assert share is None if total <= 0 else share == pytest.approx(pnls[0] / total)
+
+
 def test_data_validation_and_csv_roundtrip(tmp_path):
     bars = generate_bars(n=50, seed=1)
     dirty = bars[:10] + bars[12:] + [bars[5]]  # hueco + duplicado + desorden
